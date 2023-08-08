@@ -1,0 +1,116 @@
+﻿/*
+            26-07-2023
+        ----------------------
+
+using System.Data;
+using System.Formats;
+
+int rollNumber = 10;
+
+int salary = 500;
+decimal salary1 = 500.50m;
+salary1 = salary;
+
+salary = (int)salary1;
+
+
+//int i = 2343546576; can be changed at time of console.Writeline
+
+string number1 = "12";
+int number2 = Convert.ToInt32(number1);
+
+Console.WriteLine(number2);
+
+Console.WriteLine(salary1);
+
+Console.WriteLine(rollNumber);
+Console.WriteLine("Hello, World!");
+
+//int j = null; //cannot assign null values the method goes like this,
+//int? j = null;
+
+
+
+            //28-07-2023
+      //------------------------
+
+Console.WriteLine("Hello World!");
+
+string text = "Hello World";
+Console.WriteLine(text.Length); //length
+//Console.WriteLine(text.Substring(5); //SubString
+string SubText = text.Substring(5);
+Console.WriteLine(SubText);
+
+Console.WriteLine(text.IndexOf(SubText)); //INdexOf();
+Console.WriteLine(text);
+
+Console.WriteLine(text.Replace("Hello","Hi")); //Replace
+Console.WriteLine(text);
+
+Console.WriteLine(text.ToLower()); //ToLower    --cannot do indexing, as to change in between
+Console.WriteLine(text.ToUpper()); //ToUpper
+
+String message = "This is a sample message";
+Console.WriteLine(message);
+
+string names = "John,Jane,Bob";
+string[] _ = names.Split(',');
+Console.WriteLine(names);
+
+
+String firstName = "Jeswin";
+String lastName = "George";
+int rollNo = 11;
+string RollName = firstName + " " + lastName;
+Console.WriteLine(RollName);
+string FullName = String.Format("My Name is {0} and myrollNo is {1}", firstName, rollNo);
+Console.WriteLine(FullName);
+
+var oneC = "Jeswin";        //var Datatype
+var rollC = 10;
+Console.WriteLine(oneC);
+Console.WriteLine(rollC);
+
+*/
+
+// 31/-7/2023
+//   -----------------
+
+/*using System.Net.Security;
+
+namespace gittutorial
+{
+    internal class Program
+    {
+        static void Main(string[] args)
+        {
+            Console.WriteLine("Create C#");
+            Console.WriteLine("new Line for new stage");
+        }
+    }
+}*/
+
+//   01-08-2023
+//-------------------------
+//operators
+
+int result1 = 5 + 3 * 2;
+int result2 = (5 + 3) * 2;
+
+int result3 = 10 / 2 - 1;
+int result4 = 10 / (2 - 1);
+
+bool result5 = false;
+
+/*if(result5)
+{
+   // Console.WriteLine("result"); //doesn't executes ---because there is no operators
+
+}
+*/
+
+/*if(10==10)
+{
+    Console.WriteLine("true"); //executes
+}*/
