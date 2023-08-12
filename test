@@ -114,3 +114,48 @@ bool result5 = false;
 {
     Console.WriteLine("true"); //executes
 }*/
+/*//introduction to collections and exception handling!!
+//       09-08-2023
+//    -------------------
+*//*in C#, 2 types of collections - Generic & non generic.
+    System.Collections.Generic 
+    non generic - collections that stores elements as objects(System.Object).*//*
+//For non generic collections--
+*//*using System.Collections;
+//using System.Collections.Generic;
+//using System.Runtime.CompilerServices;
+namespace nonGenericCollections
+{
+    internal class Program
+    {
+        
+}*//*
+using System.Collections.Generic;
+using System.Globalization;
+
+namespace Generic_Collections
+{
+    internal class Program
+    {
+        static void Main(string[] args)
+        {
+            List<int> numbers = new List<int>();           //creating new generic list
+
+            numbers.Add(1);
+            numbers.Add(2);
+            numbers.Add(3);
+
+            Console.WriteLine("Element at index 2 :" + numbers[2]);
+
+            int index = numbers.IndexOf(3);
+            Console.WriteLine("index of 3: " + index);
+
+            //numbers.Add(0,3);
+        }
+    }
+}*/
+//       10-08-2023
+//    -------------------
+
+
+
