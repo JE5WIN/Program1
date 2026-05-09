@@ -1,83 +1,73 @@
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib import colors
 
-@app.route("/api/report/pdf/<scan_id>")
-def generate_pdf(scan_id):
-    file_path = f"storage/findings/{scan_id}.json"
+AttributeError
 
-    if not os.path.exists(file_path):
-        return {"error": "Not found"}, 404
+AttributeError: 'dict' object has no attribute 'split'
+Traceback (most recent call last)
 
-    with open(file_path) as f:
-        data = json.load(f)
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 1536, in __call__
 
-    pdf_path = f"storage/findings/{scan_id}.pdf"
-    doc = SimpleDocTemplate(pdf_path)
-    styles = getSampleStyleSheet()
-    content = []
+    return self.wsgi_app(environ, start_response)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    # Title
-    content.append(Paragraph(f"Scan Report: {data['target']}", styles["Title"]))
-    content.append(Spacer(1, 12))
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 1514, in wsgi_app
 
-    # Summary
-    content.append(Paragraph(f"<b>Scan ID:</b> {data['scan_id']}", styles["Normal"]))
-    content.append(Paragraph(f"<b>Timestamp:</b> {data['timestamp']}", styles["Normal"]))
-    content.append(Paragraph(f"<b>Summary:</b> High: {data['summary']['High']}, Medium: {data['summary']['Medium']}, Low: {data['summary']['Low']}", styles["Normal"]))
-    content.append(Spacer(1, 12))
+    response = self.handle_exception(e)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
 
-    # Nmap Results Table
-    if data.get("nmap"):
-        content.append(Paragraph("<b>Nmap Scan Results:</b>", styles["Heading3"]))
-        table_data = [["Port", "Service", "State", "Severity"]]
-        for port in data["nmap"]:
-            table_data.append([
-                port.get("port", ""),
-                port.get("service", ""),
-                port.get("state", ""),
-                port.get("severity", "")
-            ])
-        t = Table(table_data, repeatRows=1)
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.grey),
-            ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-        ]))
-        content.append(t)
-        content.append(Spacer(1, 12))
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 1511, in wsgi_app
 
-    # Findings
-    if data.get("findings"):
-        content.append(Paragraph("<b>Recon Findings:</b>", styles["Heading3"]))
-        for i, f in enumerate(data["findings"], start=1):
-            content.append(Paragraph(f"{i}. Title: {f.get('title','N/A')}", styles["Normal"]))
-            content.append(Paragraph(f"Severity: {f.get('severity','N/A')}", styles["Normal"]))
-            content.append(Paragraph(f"Description: {f.get('description','')}", styles["Normal"]))
-            content.append(Spacer(1, 6))
+    response = self.full_dispatch_request()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    # Vulnerabilities
-    if data.get("vulnerabilities"):
-        content.append(Paragraph("<b>Mapped Vulnerabilities:</b>", styles["Heading3"]))
-        for i, v in enumerate(data["vulnerabilities"], start=1):
-            content.append(Paragraph(f"{i}. Name: {v.get('name', v.get('title','N/A'))}", styles["Normal"]))
-            content.append(Paragraph(f"Severity: {v.get('severity','N/A')}", styles["Normal"]))
-            content.append(Paragraph(f"Description: {v.get('description','')}", styles["Normal"]))
-            content.append(Spacer(1, 6))
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 919, in full_dispatch_request
 
-    # AI Attack Chain
-    if data.get("attack_chain"):
-        content.append(Paragraph("<b>AI Generated Attack Chain:</b>", styles["Heading3"]))
-        for step in data["attack_chain"]:
-            content.append(Paragraph(f"Step {step.get('step','')} : {step.get('action','')}", styles["Normal"]))
-        content.append(Spacer(1, 12))
+    rv = self.handle_user_exception(e)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    # AI Raw Analysis
-    if data.get("ai_analysis"):
-        content.append(Paragraph("<b>AI Analysis:</b>", styles["Heading3"]))
-        content.append(Paragraph(data.get("ai_analysis",""), styles["Normal"]))
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 917, in full_dispatch_request
 
-    # Build PDF
-    doc.build(content)
+    rv = self.dispatch_request()
+         ^^^^^^^^^^^^^^^^^^^^^^^
 
-    return {"message": "PDF generated", "file": pdf_path}
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 902, in dispatch_request
+
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ [Open an interactive python shell in this frame] 
+
+    File "/home/jeswin/ai-pentest-lab/app.py", line 418, in generate_pdf
+
+    content.append(Paragraph(data.get("ai_analysis",""), styles["Normal"]))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/reportlab/platypus/paragraph.py", line 1861, in __init__
+
+    self._setup(text, style, bulletText or getattr(style,'bulletText',None), frags, cleanBlockQuotedText)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/reportlab/platypus/paragraph.py", line 1879, in _setup
+
+    text = cleaner(text)
+           ^^^^^^^^^^^^^
+
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/reportlab/platypus/paragraph.py", line 139, in cleanBlockQuotedText
+
+    L=list(filter(truth,list(map(_lineClean, split(text, '\n')))))
+                                             ^^^^^^^^^^^^^^^^^
+
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/reportlab/platypus/paragraph.py", line 96, in split
+
+    return [uword for uword in (_wsc_re_split(text) if delim is None and '\xa0' in text else text.split(delim))]
+                                                                                             ^^^^^^^^^^
+
+    AttributeError: 'dict' object has no attribute 'split'
+
+The debugger caught an exception in your WSGI application. You can now look at the traceback which led to the error.
+
+To switch between the interactive traceback and the plaintext one, you can click on the "Traceback" headline. From the text traceback you can also create a paste of it. For code execution mouse-over the frame you want to debug and click on the console icon on the right side.
+
+You can execute arbitrary Python code in the stack frames and there are some extra helpers available for introspection:
+
+    dump() shows all variables in the frame
+    dump(obj) dumps all that's known about the object
+
+Brought to you by DON'T PANIC, your friendly Werkzeug powered traceback interpreter.
