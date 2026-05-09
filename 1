@@ -1,18 +1,83 @@
-@app.before_request
-def check_api_key():
-    # Allow homepage and static files
-    if request.path == "/" or request.path.startswith("/static"):
-        return
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import colors
 
-    # Allow dashboard pages without API key
-    if request.path.startswith("/dashboard") or request.path.startswith("/index"):
-        return
+@app.route("/api/report/pdf/<scan_id>")
+def generate_pdf(scan_id):
+    file_path = f"storage/findings/{scan_id}.json"
 
-    # Protect API endpoints except public ones
-    if request.path.startswith("/api"):
-        # Add exception for PDF download if you want browser access
-        if request.path.startswith("/api/report/pdf/"):
-            return  # Allow direct browser download
+    if not os.path.exists(file_path):
+        return {"error": "Not found"}, 404
 
-        if request.headers.get("X-API-Key") != API_KEY:
-            return {"error": "Unauthorized"}, 401
+    with open(file_path) as f:
+        data = json.load(f)
+
+    pdf_path = f"storage/findings/{scan_id}.pdf"
+    doc = SimpleDocTemplate(pdf_path)
+    styles = getSampleStyleSheet()
+    content = []
+
+    # Title
+    content.append(Paragraph(f"Scan Report: {data['target']}", styles["Title"]))
+    content.append(Spacer(1, 12))
+
+    # Summary
+    content.append(Paragraph(f"<b>Scan ID:</b> {data['scan_id']}", styles["Normal"]))
+    content.append(Paragraph(f"<b>Timestamp:</b> {data['timestamp']}", styles["Normal"]))
+    content.append(Paragraph(f"<b>Summary:</b> High: {data['summary']['High']}, Medium: {data['summary']['Medium']}, Low: {data['summary']['Low']}", styles["Normal"]))
+    content.append(Spacer(1, 12))
+
+    # Nmap Results Table
+    if data.get("nmap"):
+        content.append(Paragraph("<b>Nmap Scan Results:</b>", styles["Heading3"]))
+        table_data = [["Port", "Service", "State", "Severity"]]
+        for port in data["nmap"]:
+            table_data.append([
+                port.get("port", ""),
+                port.get("service", ""),
+                port.get("state", ""),
+                port.get("severity", "")
+            ])
+        t = Table(table_data, repeatRows=1)
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.grey),
+            ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+        ]))
+        content.append(t)
+        content.append(Spacer(1, 12))
+
+    # Findings
+    if data.get("findings"):
+        content.append(Paragraph("<b>Recon Findings:</b>", styles["Heading3"]))
+        for i, f in enumerate(data["findings"], start=1):
+            content.append(Paragraph(f"{i}. Title: {f.get('title','N/A')}", styles["Normal"]))
+            content.append(Paragraph(f"Severity: {f.get('severity','N/A')}", styles["Normal"]))
+            content.append(Paragraph(f"Description: {f.get('description','')}", styles["Normal"]))
+            content.append(Spacer(1, 6))
+
+    # Vulnerabilities
+    if data.get("vulnerabilities"):
+        content.append(Paragraph("<b>Mapped Vulnerabilities:</b>", styles["Heading3"]))
+        for i, v in enumerate(data["vulnerabilities"], start=1):
+            content.append(Paragraph(f"{i}. Name: {v.get('name', v.get('title','N/A'))}", styles["Normal"]))
+            content.append(Paragraph(f"Severity: {v.get('severity','N/A')}", styles["Normal"]))
+            content.append(Paragraph(f"Description: {v.get('description','')}", styles["Normal"]))
+            content.append(Spacer(1, 6))
+
+    # AI Attack Chain
+    if data.get("attack_chain"):
+        content.append(Paragraph("<b>AI Generated Attack Chain:</b>", styles["Heading3"]))
+        for step in data["attack_chain"]:
+            content.append(Paragraph(f"Step {step.get('step','')} : {step.get('action','')}", styles["Normal"]))
+        content.append(Spacer(1, 12))
+
+    # AI Raw Analysis
+    if data.get("ai_analysis"):
+        content.append(Paragraph("<b>AI Analysis:</b>", styles["Heading3"]))
+        content.append(Paragraph(data.get("ai_analysis",""), styles["Normal"]))
+
+    # Build PDF
+    doc.build(content)
+
+    return {"message": "PDF generated", "file": pdf_path}
