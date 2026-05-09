@@ -1,7 +1,6 @@
-# AI Raw Analysis
-if data.get("ai_analysis"):
-    content.append(Paragraph("<b>AI Analysis:</b>", styles["Heading3"]))
-    ai_text = data.get("ai_analysis", {})
-    if isinstance(ai_text, dict):
-        ai_text = json.dumps(ai_text, indent=4)
-    content.append(Paragraph(ai_text, styles["Normal"]))
+┌──(venv)─(jeswin㉿kali)-[~/ai-pentest-lab]
+└─$ python app.py
+  File "/home/jeswin/ai-pentest-lab/app.py", line 426
+    return {"message": "PDF generated", "file": pdf_path}
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+SyntaxError: 'return' outside function
