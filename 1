@@ -1,72 +1,18 @@
-from flask import send_file
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib import colors
-import io
+@app.before_request
+def check_api_key():
+    # Allow homepage and static files
+    if request.path == "/" or request.path.startswith("/static"):
+        return
 
+    # Allow dashboard pages without API key
+    if request.path.startswith("/dashboard") or request.path.startswith("/index"):
+        return
 
+    # Protect API endpoints except public ones
+    if request.path.startswith("/api"):
+        # Add exception for PDF download if you want browser access
+        if request.path.startswith("/api/report/pdf/"):
+            return  # Allow direct browser download
 
-
-
-@app.route("/api/report/pdf/<scan_id>")
-def generate_pdf(scan_id):
-    file_path = f"storage/findings/{scan_id}.json"
-
-    if not os.path.exists(file_path):
-        return {"error": "Scan not found"}, 404
-
-    with open(file_path) as f:
-        data = json.load(f)
-
-    # Create PDF in memory
-    pdf_buffer = io.BytesIO()
-    doc = SimpleDocTemplate(pdf_buffer)
-    styles = getSampleStyleSheet()
-    content = []
-
-    # Title
-    content.append(Paragraph(f"AI Pentest Report - Scan ID: {scan_id}", styles["Title"]))
-    content.append(Paragraph(f"Target: {data['target']}", styles["Normal"]))
-    content.append(Paragraph(f"Timestamp: {data['timestamp']}", styles["Normal"]))
-    content.append(Paragraph("Summary:", styles["Heading2"]))
-
-    # Summary Table
-    summary = data.get("summary", {})
-    summary_data = [["Severity", "Count"]]
-    for k, v in summary.items():
-        summary_data.append([k, v])
-    
-    table = Table(summary_data, hAlign='LEFT')
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.grey),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-        ('GRID', (0,0), (-1,-1), 1, colors.black),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-    ]))
-    content.append(table)
-    content.append(Paragraph("Findings:", styles["Heading2"]))
-
-    # Findings
-    for f in data.get("findings", []):
-        content.append(Paragraph(f"Title: {f.get('title', 'N/A')}", styles["Normal"]))
-        content.append(Paragraph(f"Severity: {f.get('severity', 'N/A')}", styles["Normal"]))
-        content.append(Paragraph(f"Description: {f.get('description', '')}", styles["Normal"]))
-        content.append(Paragraph(" ", styles["Normal"]))
-
-    # Attack Chain
-    content.append(Paragraph("AI Attack Chain:", styles["Heading2"]))
-    attack_chain = data.get("attack_chain", [])
-    for step in attack_chain:
-        content.append(Paragraph(f"Step {step.get('step', '')}: {step.get('action', '')}", styles["Normal"]))
-
-    # Build PDF
-    doc.build(content)
-    pdf_buffer.seek(0)
-
-    # Send PDF as download
-    return send_file(
-        pdf_buffer,
-        as_attachment=True,
-        download_name=f"scan_{scan_id}.pdf",
-        mimetype="application/pdf"
-    )
+        if request.headers.get("X-API-Key") != API_KEY:
+            return {"error": "Unauthorized"}, 401
