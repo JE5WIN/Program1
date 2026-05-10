@@ -1,116 +1,241 @@
+from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
+import os
+import json
+import uuid
+import threading
+import time
+from datetime import datetime, timezone
+from engine.recon import basic_recon
+from engine.nmap_scanner import run_nmap
+from engine.nmap_parser import parse_nmap_output
+from engine.vuln_mapper import map_vulnerabilities
+from engine.metasploit_executor import run_msf_module
+import requests
+from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
 
-werkzeug.routing.exceptions.BuildError
+# ---------------- CONFIG ----------------
+API_KEY = "jeswin2026"
+OLLAMA_URL = "http://10.0.2.2:11434/api/generate"
 
-werkzeug.routing.exceptions.BuildError: Could not build url for endpoint 'home'. Did you mean 'dashboard' instead?
-Traceback (most recent call last)
+app = Flask(__name__)
+os.makedirs("storage/findings", exist_ok=True)
 
-    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 1536, in __call__
+# ---------------- SCAN STATUS ----------------
+scan_status = {}
 
-    return self.wsgi_app(environ, start_response)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+# ---------------- SECURITY ----------------
+@app.before_request
+def check_api_key():
+    # Allow homepage and static files
+    if request.path in ["/", "/dashboard", "/new-scan", "/history", "/learning"] or request.path.startswith("/static"):
+        return
+    # Protect API routes
+    if request.path.startswith("/api"):
+        if request.headers.get("X-API-Key") != API_KEY:
+            return {"error": "Unauthorized"}, 401
 
-    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 1514, in wsgi_app
+# ---------------- AI ----------------
+def call_ollama(recon_results):
+    prompt = f"""
+You are an autonomous penetration tester.
+Given the following findings:
+{recon_results}
+Return structured attack chain in JSON format:
+{{
+ "steps": [
+   {{"step":1,"action":"recon"}},
+   {{"step":2,"action":"exploit"}},
+   {{"step":3,"action":"privilege escalation"}}
+ ]
+}}
+"""
+    try:
+        response = requests.post(
+            OLLAMA_URL,
+            json={"model": "llama3", "prompt": prompt, "stream": False},
+            timeout=120
+        )
+        data = response.json()
+        return data.get("response", "")
+    except Exception as e:
+        print("AI ERROR:", e)
+        return ""
 
-    response = self.handle_exception(e)
-               ^^^^^^^^^^^^^^^^^^^^^^^^
+def extract_json(text):
+    try:
+        if isinstance(text, dict):
+            return text
+        import re
+        matches = re.findall(r'\{.*\}', text, re.DOTALL)
+        return json.loads(matches[0]) if matches else {}
+    except Exception:
+        return {}
 
-    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 1511, in wsgi_app
+def calculate_summary(findings):
+    summary = {"High": 0, "Medium": 0, "Low": 0}
+    if isinstance(findings, list):
+        for f in findings:
+            sev = f.get("severity")
+            if sev in summary:
+                summary[sev] += 1
+    return summary
 
-    response = self.full_dispatch_request()
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ [Open an interactive python shell in this frame] 
+# ---------------- BACKGROUND SCAN ----------------
+def run_scan_background(scan_id, target):
+    try:
+        scan_status[scan_id] = "Starting Nmap"
+        raw_nmap = run_nmap(target)
+        nmap_results = parse_nmap_output(raw_nmap)
 
-    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 919, in full_dispatch_request
+        scan_status[scan_id] = "Recon"
+        recon_results = basic_recon(target)
 
-                request_started.send(self, _async_wrapper=self.ensure_sync)
+        scan_status[scan_id] = "Vuln Mapping"
+        vulnerabilities = map_vulnerabilities(nmap_results)
 
-                rv = self.preprocess_request()
+        scan_status[scan_id] = "Metasploit"
+        msf_results = []
+        for port in nmap_results:
+            if port.get("port") == "21":
+                msf_results.append(run_msf_module("scanner/ftp/ftp_version", target))
+            if port.get("port") == "445":
+                msf_results.append(run_msf_module("scanner/smb/smb_version", target))
 
-                if rv is None:
+        scan_status[scan_id] = "AI Reasoning"
+        ai_raw = call_ollama(recon_results)
+        attack_chain = extract_json(ai_raw).get("steps", [])
 
-                    rv = self.dispatch_request()
+        # Build final result
+        result = {
+            "scan_id": scan_id,
+            "target": target,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "nmap": nmap_results,
+            "findings": recon_results,
+            "vulnerabilities": vulnerabilities,
+            "attack_chain": attack_chain,
+            "metasploit": msf_results,
+            "ai_analysis": ai_raw,
+            "summary": calculate_summary(recon_results),
+            "status": "Completed"
+        }
 
-            except Exception as e:
+        file_path = f"storage/findings/{scan_id}.json"
+        with open(file_path, "w") as f:
+            json.dump(result, f, indent=4)
 
-                rv = self.handle_user_exception(e)
-                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        scan_status[scan_id] = "Completed"
+    except Exception as e:
+        scan_status[scan_id] = "Failed"
+        print(f"[SCAN ERROR] {scan_id}: {e}")
 
-            return self.finalize_request(rv)
+# ---------------- ROUTES ----------------
+@app.route("/")
+def root_redirect():
+    return redirect(url_for("dashboard"))
 
-     
+@app.route("/dashboard")
+def dashboard():
+    return render_template("dashboard.html")
 
-        def finalize_request(
-
-            self,
-
-            rv: ft.ResponseReturnValue | HTTPException,
-
-    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 917, in full_dispatch_request
-
-    rv = self.dispatch_request()
-         ^^^^^^^^^^^^^^^^^^^^^^^
-
-    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 902, in dispatch_request
-
-    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-    File "/home/jeswin/ai-pentest-lab/app.py", line 152, in new_scan_page
-
+@app.route("/new-scan")
+def new_scan_page():
     return render_template("new-scan.html")
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/templating.py", line 151, in render_template
+@app.route("/history")
+def history_page():
+    return render_template("history.html")
 
-    return _render(app, template, context)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+@app.route("/learning")
+def learning_page():
+    return render_template("learning.html")
 
-    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/templating.py", line 132, in _render
+@app.route("/export")
+def export_page():
+    return render_template("export.html")
 
-    rv = template.render(context)
-         ^^^^^^^^^^^^^^^^^^^^^^^^
+# ---------------- API ----------------
+@app.route("/api/scan", methods=["POST"])
+def api_scan():
+    data = request.get_json()
+    target = data.get("target")
+    if not target:
+        return {"error": "Target required"}, 400
 
-    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/jinja2/environment.py", line 1295, in render
+    scan_id = str(uuid.uuid4())
+    scan_status[scan_id] = "Starting"
 
-    self.environment.handle_exception()
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    # Start background scan
+    thread = threading.Thread(target=run_scan_background, args=(scan_id, target))
+    thread.start()
 
-    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/jinja2/environment.py", line 942, in handle_exception
+    return jsonify({"scan_id": scan_id, "status": "started"})
 
-    raise rewrite_traceback_stack(source=source)
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+@app.route("/api/status/<scan_id>")
+def api_status(scan_id):
+    return {"status": scan_status.get(scan_id, "Unknown")}
 
-    File "/home/jeswin/ai-pentest-lab/templates/new-scan.html", line 1, in top-level template code
+@app.route("/api/result/<scan_id>")
+def api_result(scan_id):
+    file_path = f"storage/findings/{scan_id}.json"
+    if not os.path.exists(file_path):
+        return {"error": "Not ready"}, 404
 
-    {% extends "base.html" %}
+    with open(file_path) as f:
+        return json.load(f)
 
-    File "/home/jeswin/ai-pentest-lab/templates/base.html", line 16, in top-level template code
+@app.route("/api/scans")
+def list_scans():
+    scans = []
+    for file in os.listdir("storage/findings"):
+        if file.endswith(".json"):
+            with open(os.path.join("storage/findings", file)) as f:
+                data = json.load(f)
+            scans.append({
+                "scan_id": data.get("scan_id"),
+                "target": data.get("target"),
+                "timestamp": data.get("timestamp"),
+                "status": data.get("status", "Unknown")
+            })
+    return jsonify(scans)
 
-    <a href="{{ url_for('home') }}" class="side-btn {% if request.endpoint == 'home' %}active{% endif %}">Home</a>
+# ---------------- PDF EXPORT ----------------
+@app.route("/api/report/pdf/<scan_id>")
+def generate_pdf(scan_id):
+    from io import BytesIO
+    from flask import send_file
 
-    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 1121, in url_for
+    file_path = f"storage/findings/{scan_id}.json"
+    if not os.path.exists(file_path):
+        return {"error": "Not found"}, 404
 
-    return self.handle_url_build_error(error, endpoint, values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    with open(file_path) as f:
+        data = json.load(f)
 
-    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 1110, in url_for
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer)
+    styles = getSampleStyleSheet()
+    content = []
 
-    rv = url_adapter.build(  # type: ignore[union-attr]
-         
+    # Add main scan details
+    content.append(Paragraph(f"Target: {data['target']}", styles["Normal"]))
+    content.append(Paragraph(f"Timestamp: {data['timestamp']}", styles["Normal"]))
+    content.append(Paragraph(f"Summary: {data['summary']}", styles["Normal"]))
 
-    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/werkzeug/routing/map.py", line 901, in build
+    # Findings
+    for i, finding in enumerate(data.get("findings", []), 1):
+        content.append(Paragraph(f"Finding {i}:", styles["Normal"]))
+        content.append(Paragraph(json.dumps(finding, indent=2), styles["Normal"]))
 
-    raise BuildError(endpoint, values, method, self)
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    # Attack chain
+    content.append(Paragraph("Attack Chain:", styles["Normal"]))
+    content.append(Paragraph(json.dumps(data.get("attack_chain", []), indent=2), styles["Normal"]))
 
-    werkzeug.routing.exceptions.BuildError: Could not build url for endpoint 'home'. Did you mean 'dashboard' instead?
+    doc.build(content)
+    buffer.seek(0)
+    return send_file(buffer, as_attachment=True, download_name=f"{scan_id}.pdf", mimetype="application/pdf")
 
-The debugger caught an exception in your WSGI application. You can now look at the traceback which led to the error.
-
-To switch between the interactive traceback and the plaintext one, you can click on the "Traceback" headline. From the text traceback you can also create a paste of it. For code execution mouse-over the frame you want to debug and click on the console icon on the right side.
-
-You can execute arbitrary Python code in the stack frames and there are some extra helpers available for introspection:
-
-    dump() shows all variables in the frame
-    dump(obj) dumps all that's known about the object
-
-Brought to you by DON'T PANIC, your friendly Werkzeug powered traceback interpreter.
+# ---------------- RUN ----------------
+if __name__ == "__main__":
+    app.run(debug=True)
