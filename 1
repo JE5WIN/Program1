@@ -1,6 +1,32 @@
-┌──(venv)─(jeswin㉿kali)-[~/ai-pentest-lab]
-└─$ python app.py
-  File "/home/jeswin/ai-pentest-lab/app.py", line 426
+@app.route("/api/report/pdf/<scan_id>")
+def generate_pdf(scan_id):
+    file_path = f"storage/findings/{scan_id}.json"
+
+    if not os.path.exists(file_path):
+        return {"error": "Not found"}, 404
+
+    with open(file_path) as f:
+        data = json.load(f)
+
+    pdf_path = f"storage/findings/{scan_id}.pdf"
+
+    doc = SimpleDocTemplate(pdf_path)
+    styles = getSampleStyleSheet()
+
+    content = []
+
+    content.append(Paragraph(f"Target: {data['target']}", styles["Normal"]))
+    content.append(Paragraph(f"Summary: {data['summary']}", styles["Normal"]))
+
+    # Convert AI analysis to string if needed
+    ai_text = data.get("ai_analysis", {})
+    if isinstance(ai_text, dict):
+        ai_text = json.dumps(ai_text, indent=4)
+    content.append(Paragraph("<b>AI Analysis:</b>", styles["Heading3"]))
+    content.append(Paragraph(ai_text, styles["Normal"]))
+
+    # Build PDF
+    doc.build(content)
+
+    # ✅ Return must be inside the function
     return {"message": "PDF generated", "file": pdf_path}
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-SyntaxError: 'return' outside function
