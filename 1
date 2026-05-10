@@ -1,46 +1,22 @@
-// =========================================
-// AI-PENTEST DASHBOARD SCRIPT.JS
-// Handles scanning, polling, and rendering
-// =========================================
+// script.js
 
 const API_KEY = "jeswin2026";
 
-// =====================
-// TAB NAVIGATION
-// =====================
+// ---------------- TAB HANDLING ----------------
 function showMainTab(tabId, el) {
-    const panels = document.querySelectorAll(".tab-panel");
-    panels.forEach(p => p.classList.add("hidden"));
-    document.getElementById(tabId).classList.remove("hidden");
-
-    const tabs = document.querySelectorAll(".tab-btn");
+    const tabs = document.querySelectorAll(".tab-panel");
     tabs.forEach(t => t.classList.remove("active"));
+
+    const buttons = document.querySelectorAll(".tab-btn");
+    buttons.forEach(b => b.classList.remove("active"));
+
+    document.getElementById(tabId).classList.add("active");
     el.classList.add("active");
 }
 
-function toggleAttackView(view) {
-    const listView = document.getElementById("attackListView");
-    const graphView = document.getElementById("attackGraphView");
-
-    if (view === "list") {
-        listView.classList.remove("hidden");
-        graphView.classList.add("hidden");
-    } else {
-        listView.classList.add("hidden");
-        graphView.classList.remove("hidden");
-        renderAttackGraph(); // call graph rendering
-    }
-
-    document.getElementById("attackListToggle").classList.toggle("active", view === "list");
-    document.getElementById("attackGraphToggle").classList.toggle("active", view === "graph");
-}
-
-// =====================
-// SCAN INITIATION
-// =====================
+// ---------------- START SCAN ----------------
 async function startScan() {
-    const targetInput = document.getElementById("target");
-    const target = targetInput.value.trim();
+    const target = document.getElementById("target").value.trim();
     const statusEl = document.getElementById("topStatus");
 
     if (!target) {
@@ -49,40 +25,34 @@ async function startScan() {
     }
 
     statusEl.innerText = "Starting scan...";
-
     try {
-        const response = await fetch("/api/scan", {
+        const res = await fetch("/api/scan", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
                 "X-API-Key": API_KEY
             },
-            body: JSON.stringify({ target: target })
+            body: JSON.stringify({ target })
         });
 
-        const data = await response.json();
-
-        if (!response.ok) {
+        const data = await res.json();
+        if (!res.ok) {
             statusEl.innerText = data.error || "Failed to start scan.";
             return;
         }
 
         const scanId = data.scan_id;
         statusEl.innerText = `Scan started (ID: ${scanId})`;
-
-        // Poll scan status every 3 seconds
-        pollScanStatus(scanId);
+        pollScan(scanId);
 
     } catch (err) {
-        console.error("Error starting scan:", err);
+        console.error(err);
         statusEl.innerText = "Error starting scan.";
     }
 }
 
-// =====================
-// POLLING SCAN STATUS
-// =====================
-function pollScanStatus(scanId) {
+// ---------------- POLL SCAN STATUS ----------------
+function pollScan(scanId) {
     const statusEl = document.getElementById("topStatus");
 
     const interval = setInterval(async () => {
@@ -90,100 +60,78 @@ function pollScanStatus(scanId) {
             const res = await fetch(`/api/status/${scanId}`, {
                 headers: { "X-API-Key": API_KEY }
             });
-            const data = await res.json();
+            const statusData = await res.json();
+            statusEl.innerText = `Status: ${statusData.status}`;
 
-            statusEl.innerText = `Scan Status: ${data.status}`;
+            await loadScanResult(scanId);
 
-            // Load partial results every time
-            await loadPartialResult(scanId);
-
-            if (data.status === "Completed" || data.status === "Failed") {
+            if (statusData.status === "Completed" || statusData.status === "Failed") {
                 clearInterval(interval);
-                statusEl.innerText = `Scan ${data.status}`;
-                if (data.status === "Completed") {
-                    await loadPartialResult(scanId, true); // load final
-                }
+                statusEl.innerText = `Status: ${statusData.status}`;
             }
         } catch (err) {
             clearInterval(interval);
-            console.error("Polling error:", err);
             statusEl.innerText = "Error checking scan status.";
+            console.error(err);
         }
     }, 3000);
 }
 
-// =====================
-// LOAD PARTIAL RESULTS
-// =====================
-async function loadPartialResult(scanId, finalLoad = false) {
+// ---------------- LOAD SCAN RESULT ----------------
+async function loadScanResult(scanId) {
     try {
         const res = await fetch(`/api/result/${scanId}`, {
             headers: { "X-API-Key": API_KEY }
         });
+        if (!res.ok) return;
+
         const data = await res.json();
 
-        renderOverview(data);
+        renderSummary(data.summary, data.nmap, data.vulnerabilities);
         renderPorts(data.nmap || []);
         renderFindings(data.findings || []);
         renderVulnerabilities(data.vulnerabilities || []);
-
-        if (data.ai_analysis && Object.keys(data.ai_analysis).length > 0) {
-            renderAIAnalysis(data.ai_analysis);
-            renderAttackChain(data.ai_analysis.attack_chain || []);
-        } else if (!finalLoad) {
-            document.getElementById("rawAiContent").innerHTML = `<p class="empty-state">AI analysis pending...</p>`;
-            document.getElementById("attackChainContent").innerHTML = `<p class="empty-state">AI attack chain pending...</p>`;
-        }
-
+        renderAttackChain(data.attack_chain || []);
         renderMetasploit(data.metasploit || []);
-
+        renderAI(data.ai_analysis || "");
     } catch (err) {
-        console.error("Load scan error:", err);
+        console.error("Load scan result error:", err);
     }
 }
 
-// =====================
-// RENDER FUNCTIONS
-// =====================
-function renderOverview(data) {
-    const portsCount = Array.isArray(data.nmap)
-        ? data.nmap.filter(p => p.port).length
-        : 0;
-
-    const summary = data.summary || { High: 0, Medium: 0, Low: 0 };
-
-    document.getElementById("overviewContent").innerHTML = `
-        <div class="result-box">
-            <p><strong>Scan ID:</strong> ${data.scan_id || "N/A"}</p>
-            <p><strong>Target:</strong> ${data.target || "N/A"}</p>
-            <p><strong>Timestamp:</strong> ${data.timestamp || "N/A"}</p>
-        </div>
-        <div class="summary-grid">
-            <div class="summary-card total"><h4>Total Open Ports</h4><p>${portsCount}</p></div>
-            <div class="summary-card high"><h4>High</h4><p>${summary.High ?? 0}</p></div>
-            <div class="summary-card medium"><h4>Medium</h4><p>${summary.Medium ?? 0}</p></div>
-            <div class="summary-card low"><h4>Low</h4><p>${summary.Low ?? 0}</p></div>
-            <div class="summary-card info"><h4>Mapped Vulnerabilities</h4><p>${(data.vulnerabilities || []).length}</p></div>
-        </div>
-    `;
+// ---------------- RENDERING FUNCTIONS ----------------
+function renderSummary(summary = {}, ports = [], vulns = []) {
+    document.getElementById("summaryPorts").innerText = ports.length || 0;
+    document.getElementById("summaryHigh").innerText = summary.High || 0;
+    document.getElementById("summaryMedium").innerText = summary.Medium || 0;
+    document.getElementById("summaryLow").innerText = summary.Low || 0;
+    document.getElementById("summaryVulns").innerText = vulns.length || 0;
 }
 
 function renderPorts(ports) {
     const el = document.getElementById("portsContent");
-    if (!ports.length) return el.innerHTML = `<p class="empty-state">No open ports found yet.</p>`;
-
+    if (!ports.length) {
+        el.innerHTML = `<p class="empty-state">No open ports.</p>`;
+        return;
+    }
     const rows = ports.map(p => `
         <tr>
             <td>${p.port || "N/A"}</td>
-            <td>${p.protocol || "N/A"}</td>
-            <td>${p.service || "N/A"}</td>
-            <td>${p.state || "N/A"}</td>
+            <td>${p.protocol || "tcp"}</td>
+            <td>${p.service || "unknown"}</td>
+            <td>${p.severity || "-"}</td>
         </tr>
     `).join("");
-
     el.innerHTML = `
         <table>
-            <thead><tr><th>Port</th><th>Protocol</th><th>Service</th><th>State</th></tr></thead>
+            <thead>
+                <tr>
+                    <th>Port</th>
+                    <th>Protocol</th>
+                    <th>Service</th>
+                    <th>Severity</th>
+                </tr>
+            </thead>
             <tbody>${rows}</tbody>
         </table>
     `;
@@ -191,61 +139,104 @@ function renderPorts(ports) {
 
 function renderFindings(findings) {
     const el = document.getElementById("findingsContent");
-    if (!findings.length) return el.innerHTML = `<p class="empty-state">No findings yet.</p>`;
-
+    if (!findings.length) {
+        el.innerHTML = `<p class="empty-state">No findings.</p>`;
+        return;
+    }
     el.innerHTML = findings.map((f, i) => `
-        <div class="result-box">
+        <div class="result-box" onclick="showDetail(${i}, 'finding')">
             <h4>Finding ${i+1}</h4>
             <p><strong>Title:</strong> ${f.title || "N/A"}</p>
             <p><strong>Severity:</strong> ${f.severity || "N/A"}</p>
-            <p><strong>Description:</strong> ${f.description || "N/A"}</p>
+            <p><strong>Description:</strong> ${f.description || "-"}</p>
         </div>
     `).join("");
 }
 
 function renderVulnerabilities(vulns) {
     const el = document.getElementById("vulnerabilitiesContent");
-    if (!vulns.length) return el.innerHTML = `<p class="empty-state">No vulnerabilities mapped yet.</p>`;
-
+    if (!vulns.length) {
+        el.innerHTML = `<p class="empty-state">No vulnerabilities.</p>`;
+        return;
+    }
     el.innerHTML = vulns.map((v, i) => `
-        <div class="result-box">
+        <div class="result-box" onclick="showDetail(${i}, 'vuln')">
             <h4>Vulnerability ${i+1}</h4>
             <p><strong>Name:</strong> ${v.name || v.title || "N/A"}</p>
             <p><strong>Severity:</strong> ${v.severity || "N/A"}</p>
-            <p><strong>Description:</strong> ${v.description || "N/A"}</p>
+            <p><strong>Description:</strong> ${v.description || "-"}</p>
         </div>
     `).join("");
-}
-
-function renderAIAnalysis(ai) {
-    const el = document.getElementById("rawAiContent");
-    // Format AI JSON in readable way
-    const humanReadable = `
-        <p><strong>Risk Level:</strong> ${ai.risk_level || "N/A"}</p>
-        <p><strong>Explanation:</strong> ${ai.explanation || "N/A"}</p>
-        <p><strong>Mitigation:</strong></p>
-        <ol>
-            ${(ai.mitigation || []).map(m => `<li>${m.step || ""}: ${m.recommendation || m}</li>`).join("")}
-        </ol>
-    `;
-    el.innerHTML = humanReadable;
 }
 
 function renderAttackChain(chain) {
     const el = document.getElementById("attackChainContent");
-    if (!chain.length) return el.innerHTML = `<p class="empty-state">AI attack chain pending...</p>`;
-
-    el.innerHTML = `<ol>` + chain.map(s => `<li><strong>Step:</strong> ${s.step || ""}, <strong>Action:</strong> ${s.action || ""}</li>`).join("") + `</ol>`;
+    if (!chain.length) {
+        el.innerHTML = `<p class="empty-state">No attack chain.</p>`;
+        return;
+    }
+    const items = chain.map((s, i) => `
+        <li><strong>Step ${i+1}:</strong> ${s.action || s.technique || "N/A"} (${s.tool || "-"})</li>
+    `).join("");
+    el.innerHTML = `<ol>${items}</ol>`;
 }
 
-function renderMetasploit(msf) {
+function renderMetasploit(results) {
     const el = document.getElementById("metasploitContent");
-    if (!msf.length) return el.innerHTML = `<p class="empty-state">No Metasploit results yet.</p>`;
-
-    el.innerHTML = msf.map((m, i) => `
+    if (!results || !results.length) {
+        el.innerHTML = `<p class="empty-state">No Metasploit results yet.</p>`;
+        return;
+    }
+    el.innerHTML = results.map((r, i) => `
         <div class="result-box">
-            <h4>Module ${i+1}</h4>
-            <pre>${typeof m === "string" ? m : JSON.stringify(m, null, 2)}</pre>
+            <pre>${typeof r === "string" ? r : JSON.stringify(r, null, 2)}</pre>
         </div>
     `).join("");
+}
+
+function renderAI(ai) {
+    const el = document.getElementById("rawAiContent");
+    if (!ai || !ai.trim()) {
+        el.innerHTML = `<p class="empty-state">AI output pending.</p>`;
+        return;
+    }
+
+    // Convert JSON to readable format
+    let readable = ai;
+    try {
+        const obj = typeof ai === "string" ? JSON.parse(ai) : ai;
+        readable = `
+            <p><strong>Risk Level:</strong> ${obj.risk_level || "N/A"}</p>
+            <p><strong>Explanation:</strong> ${obj.explanation || "N/A"}</p>
+            <p><strong>Mitigation:</strong></p>
+            <ul>
+                ${(obj.mitigation || []).map(m => `<li>${m.step || ""} - ${m.recommendation || m}</li>`).join("")}
+            </ul>
+        `;
+    } catch(e){ console.log("AI parsing error", e); }
+
+    el.innerHTML = readable;
+}
+
+// ---------------- DETAIL DRAWER ----------------
+function showDetail(idx, type) {
+    const drawer = document.getElementById("detailDrawer");
+    const contentEl = document.getElementById("drawerContent");
+    drawer.style.display = "block";
+
+    let data = [];
+    if(type === 'finding') data = window.currentFindings || [];
+    if(type === 'vuln') data = window.currentVulns || [];
+
+    if(data[idx]){
+        contentEl.innerHTML = `
+            <p><strong>Name/Title:</strong> ${data[idx].title || data[idx].name}</p>
+            <p><strong>Severity:</strong> ${data[idx].severity}</p>
+            <p><strong>Description:</strong> ${data[idx].description}</p>
+        `;
+    }
+}
+
+function closeDrawer() {
+    document.getElementById("detailDrawer").style.display = "none";
 }
