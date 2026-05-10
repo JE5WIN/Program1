@@ -1,250 +1,232 @@
-// ---------------- CONFIG ----------------
-const API_KEY = "jeswin2026";
+from flask import Flask, request, jsonify, render_template, send_file
+import json
+import os
+import requests
+import uuid
+import threading
+import time
+from datetime import timezone, datetime
+from engine.recon import basic_recon
+from engine.nmap_scanner import run_nmap
+from engine.nmap_parser import parse_nmap_output
+from engine.vuln_mapper import map_vulnerabilities
+from engine.metasploit_executor import run_msf_module
+from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
 
-// ---------------- TAB NAVIGATION ----------------
-function showMainTab(tabId, el) {
-    const tabs = document.querySelectorAll(".tab-panel");
-    tabs.forEach(tab => tab.classList.add("hidden"));
+# CONFIG
+API_KEY = "jeswin2026"
+OLLAMA_URL = "http://10.0.2.2:11434/api/generate"
 
-    const buttons = document.querySelectorAll(".tab-btn");
-    buttons.forEach(btn => btn.classList.remove("active"));
+app = Flask(__name__)
+os.makedirs("storage/findings", exist_ok=True)
 
-    document.getElementById(tabId).classList.remove("hidden");
-    el.classList.add("active");
-}
+# Track scan status for incremental updates
+scan_status = {}
 
-// ---------------- SCAN ----------------
-async function startScan() {
-    const targetInput = document.getElementById("target");
-    const statusEl = document.getElementById("scanStatus");
-    const target = targetInput.value.trim();
+# ---------------- SECURITY ----------------
+@app.before_request
+def check_api_key():
+    if request.path == "/" or request.path.startswith("/static"):
+        return
+    if request.path.startswith("/api"):
+        if request.headers.get("X-API-Key") != API_KEY:
+            return {"error": "Unauthorized"}, 401
 
-    if (!target) {
-        statusEl.innerText = "Please enter a target IP or domain.";
-        return;
-    }
+# ---------------- AI ----------------
+def call_ollama(recon_results):
+    """Call local Ollama AI and return human-readable JSON"""
+    prompt = f"""
+You are an autonomous penetration tester.
 
-    statusEl.innerText = "Starting scan...";
+Findings:
+{recon_results}
 
-    try {
-        const response = await fetch("/api/scan", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "X-API-Key": API_KEY
-            },
-            body: JSON.stringify({ target: target })
-        });
+Return structured JSON (human readable):
 
-        const data = await response.json();
+{{
+ "steps": [
+    {{"step": 1, "action": "Recon"}},
+    {{"step": 2, "action": "Exploit"}},
+    {{"step": 3, "action": "Privilege Escalation"}}
+ ],
+ "risk_level": "",
+ "explanation": "",
+ "mitigation": []
+}}
+"""
+    try:
+        start = time.time()
+        response = requests.post(
+            OLLAMA_URL,
+            json={"model": "llama3", "prompt": prompt, "stream": False},
+            timeout=120
+        )
+        data = response.json()
+        response_text = data.get("response", "")
+        print("AI TIME:", time.time() - start)
+        return response_text.strip()
+    except Exception as e:
+        print("AI ERROR:", e)
+        return ""
 
-        if (!response.ok) {
-            statusEl.innerText = data.error || "Failed to start scan.";
-            return;
+def extract_json(text):
+    try:
+        import re
+        matches = re.findall(r'\{.*\}', text, re.DOTALL)
+        return json.loads(matches[0]) if matches else {}
+    except Exception as e:
+        print("JSON extract error:", e)
+        return {}
+
+def calculate_summary(findings):
+    summary = {"High": 0, "Medium": 0, "Low": 0}
+    for f in findings or []:
+        sev = f.get("severity")
+        if sev in summary:
+            summary[sev] += 1
+    return summary
+
+# ---------------- BACKGROUND SCAN ----------------
+def run_scan_background(scan_id, target):
+    try:
+        scan_status[scan_id] = "Running Nmap"
+        raw_nmap = run_nmap(target)
+        nmap_results = parse_nmap_output(raw_nmap)
+
+        scan_status[scan_id] = "Recon"
+        recon_results = basic_recon(target)
+
+        scan_status[scan_id] = "Vulnerability Mapping"
+        vuln_map = map_vulnerabilities(nmap_results)
+
+        scan_status[scan_id] = "Metasploit"
+        msf_results = []
+        for port in nmap_results:
+            if port.get("port") == "21":
+                msf_results.append(run_msf_module("scanner/ftp/ftp_version", target))
+            if port.get("port") == "445":
+                msf_results.append(run_msf_module("scanner/smb/smb_version", target))
+
+        scan_status[scan_id] = "AI Reasoning"
+        ai_raw = call_ollama(recon_results)
+        attack_chain = extract_json(ai_raw).get("steps", [])
+
+        # Final result JSON
+        result = {
+            "scan_id": scan_id,
+            "target": target,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "nmap": nmap_results,
+            "findings": recon_results,
+            "vulnerabilities": vuln_map,
+            "attack_chain": attack_chain,
+            "metasploit": msf_results,
+            "ai_analysis": ai_raw,
+            "summary": calculate_summary(recon_results),
+            "status": "Completed"
         }
 
-        const scanId = data.scan_id;
-        statusEl.innerText = `Scan started. Scan ID: ${scanId}`;
+        file_path = f"storage/findings/{scan_id}.json"
+        with open(file_path, "w") as f:
+            json.dump(result, f, indent=4)
 
-        // Poll results live
-        pollScanResults(scanId);
+        scan_status[scan_id] = "Completed"
+        print(f"[SCAN DONE] {scan_id}")
 
-    } catch (error) {
-        console.error("Start scan error:", error);
-        statusEl.innerText = "Error starting scan.";
-    }
-}
+    except Exception as e:
+        scan_status[scan_id] = "Failed"
+        print("Scan Error:", e)
 
-// ---------------- POLLING / LIVE UPDATE ----------------
-async function pollScanResults(scanId) {
-    const statusEl = document.getElementById("scanStatus");
+# ---------------- ROUTES ----------------
+@app.route("/")
+def index():
+    return render_template("index.html")
 
-    const interval = setInterval(async () => {
-        try {
-            const response = await fetch(`/api/result/${scanId}`, {
-                headers: { "X-API-Key": API_KEY }
-            });
-            const data = await response.json();
+@app.route("/dashboard")
+def dashboard():
+    return render_template("dashboard.html")
 
-            // Update status based on backend stage
-            statusEl.innerText = `Status: ${scan_status_map(data.status)}`;
+@app.route("/new-scan")
+def new_scan_page():
+    return render_template("new-scan.html")
 
-            // Incrementally update UI
-            if (data.nmap) renderPorts(data.nmap);
-            if (data.findings) renderFindings(data.findings);
-            if (data.vulnerabilities) renderVulnerabilities(data.vulnerabilities);
-            if (data.attack_chain) renderAttackChain(data.attack_chain);
-            if (data.metasploit) renderMetasploit(data.metasploit);
-            if (data.ai_analysis) renderAIReadable(data.ai_analysis);
-            if (data.summary) renderOverviewSummary(data.summary, data);
+@app.route("/api/scan", methods=["POST"])
+def api_scan():
+    data = request.get_json()
+    target = data.get("target")
+    if not target:
+        return {"error": "Target required"}, 400
 
-            // Stop polling when completed
-            if (data.status === "Completed") {
-                clearInterval(interval);
-                showMainTab('overviewTab', document.querySelector(".tab-btn.active"));
-                statusEl.innerText = "Scan Completed";
-            }
-        } catch (error) {
-            console.error("Polling error:", error);
-            clearInterval(interval);
-            statusEl.innerText = "Error checking scan status.";
-        }
-    }, 2000); // every 2 sec
-}
+    scan_id = str(uuid.uuid4())
+    scan_status[scan_id] = "Starting"
 
-// Map backend statuses to readable text
-function scan_status_map(status) {
-    switch(status) {
-        case "Nmap": return "Running Nmap Scan";
-        case "Recon": return "Running Recon Engine";
-        case "Metasploit": return "Running Metasploit Modules";
-        case "AI": return "Generating AI Attack Chain";
-        case "Completed": return "Scan Completed";
-        case "Failed": return "Scan Failed";
-        default: return status;
-    }
-}
+    # Run scan in background thread
+    thread = threading.Thread(target=run_scan_background, args=(scan_id, target))
+    thread.start()
 
-// ---------------- RENDER FUNCTIONS ----------------
-function renderOverviewSummary(summary, data) {
-    document.getElementById("summaryPorts").innerText = data.nmap?.length || 0;
-    document.getElementById("summaryHigh").innerText = summary.High ?? 0;
-    document.getElementById("summaryMedium").innerText = summary.Medium ?? 0;
-    document.getElementById("summaryLow").innerText = summary.Low ?? 0;
-    document.getElementById("summaryVulns").innerText = data.vulnerabilities?.length || 0;
+    return jsonify({"scan_id": scan_id, "status": "started"})
 
-    // Overview content
-    const overviewEl = document.getElementById("overviewContent");
-    overviewEl.innerHTML = `
-        <div class="result-box">
-            <p><strong>Scan ID:</strong> ${escapeHtml(data.scan_id || "N/A")}</p>
-            <p><strong>Target:</strong> ${escapeHtml(data.target || "N/A")}</p>
-            <p><strong>Timestamp:</strong> ${escapeHtml(data.timestamp || "N/A")}</p>
-        </div>
-    `;
-}
+@app.route("/api/status/<scan_id>")
+def api_status(scan_id):
+    return {"status": scan_status.get(scan_id, "Unknown")}
 
-function renderPorts(ports) {
-    const el = document.getElementById("portsContent");
-    if (!Array.isArray(ports) || ports.length === 0) {
-        el.innerHTML = `<p class="empty-state">No open ports found.</p>`;
-        return;
-    }
+@app.route("/api/result/<scan_id>")
+def api_result(scan_id):
+    file_path = f"storage/findings/{scan_id}.json"
+    if not os.path.exists(file_path):
+        return {"error": "Not ready"}, 404
+    with open(file_path) as f:
+        return json.load(f)
 
-    const rows = ports.map(port => `
-        <tr>
-            <td>${escapeHtml(port.port || "N/A")}</td>
-            <td>${escapeHtml(port.protocol || "N/A")}</td>
-            <td>${escapeHtml(port.service || "N/A")}</td>
-            <td>${escapeHtml(port.state || "N/A")}</td>
-        </tr>
-    `).join("");
+@app.route("/api/scans")
+def api_scans():
+    scans = []
+    for file in os.listdir("storage/findings"):
+        if file.endswith(".json"):
+            with open(os.path.join("storage/findings", file)) as f:
+                data = json.load(f)
+            scans.append({
+                "scan_id": data.get("scan_id"),
+                "target": data.get("target"),
+                "timestamp": data.get("timestamp"),
+                "summary": data.get("summary")
+            })
+    return jsonify(scans)
 
-    el.innerHTML = `
-        <table>
-            <thead>
-                <tr>
-                    <th>Port</th>
-                    <th>Protocol</th>
-                    <th>Service</th>
-                    <th>State</th>
-                </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-        </table>
-    `;
-}
+# ---------------- PDF EXPORT ----------------
+@app.route("/api/report/pdf/<scan_id>")
+def generate_pdf(scan_id):
+    file_path = f"storage/findings/{scan_id}.json"
+    if not os.path.exists(file_path):
+        return {"error": "Not found"}, 404
 
-function renderFindings(findings) {
-    const el = document.getElementById("findingsContent");
-    if (!Array.isArray(findings) || findings.length === 0) {
-        el.innerHTML = `<p class="empty-state">No findings available.</p>`;
-        return;
-    }
+    with open(file_path) as f:
+        data = json.load(f)
 
-    el.innerHTML = findings.map((f,i) => `
-        <div class="result-box">
-            <h4>Finding ${i+1}</h4>
-            <p><strong>Title:</strong> ${escapeHtml(f.title || "N/A")}</p>
-            <p><strong>Severity:</strong> ${escapeHtml(f.severity || "N/A")}</p>
-            <p><strong>Description:</strong> ${escapeHtml(f.description || JSON.stringify(f))}</p>
-        </div>
-    `).join("");
-}
+    pdf_path = f"storage/findings/{scan_id}.pdf"
+    doc = SimpleDocTemplate(pdf_path)
+    styles = getSampleStyleSheet()
+    content = []
 
-function renderVulnerabilities(vulns) {
-    const el = document.getElementById("vulnerabilitiesContent");
-    if (!Array.isArray(vulns) || vulns.length === 0) {
-        el.innerHTML = `<p class="empty-state">No vulnerabilities mapped.</p>`;
-        return;
-    }
+    content.append(Paragraph(f"Target: {data['target']}", styles["Normal"]))
+    content.append(Paragraph(f"Timestamp: {data['timestamp']}", styles["Normal"]))
+    content.append(Paragraph(f"Summary: {json.dumps(data['summary'], indent=2)}", styles["Normal"]))
+    content.append(Paragraph("Findings:", styles["Normal"]))
+    for f in data.get("findings", []):
+        content.append(Paragraph(json.dumps(f, indent=2), styles["Normal"]))
 
-    el.innerHTML = vulns.map((v,i) => `
-        <div class="result-box">
-            <h4>Vulnerability ${i+1}</h4>
-            <p><strong>Name:</strong> ${escapeHtml(v.name || v.title || "N/A")}</p>
-            <p><strong>Severity:</strong> ${escapeHtml(v.severity || "N/A")}</p>
-            <p><strong>Description:</strong> ${escapeHtml(v.description || JSON.stringify(v))}</p>
-        </div>
-    `).join("");
-}
+    content.append(Paragraph("Vulnerabilities:", styles["Normal"]))
+    for v in data.get("vulnerabilities", []):
+        content.append(Paragraph(json.dumps(v, indent=2), styles["Normal"]))
 
-function renderAttackChain(chain) {
-    const el = document.getElementById("attackChainContent");
-    if (!Array.isArray(chain) || chain.length === 0) {
-        el.innerHTML = `<p class="empty-state">No attack chain generated.</p>`;
-        return;
-    }
+    content.append(Paragraph("Attack Chain:", styles["Normal"]))
+    for a in data.get("attack_chain", []):
+        content.append(Paragraph(json.dumps(a, indent=2), styles["Normal"]))
 
-    const items = chain.map((step, idx) => `<li>Step ${idx+1}: ${escapeHtml(step.action || step.technique || "")}</li>`).join("");
-    el.innerHTML = `<ol>${items}</ol>`;
-}
+    doc.build(content)
+    return send_file(pdf_path, as_attachment=True)
 
-function renderMetasploit(results) {
-    const el = document.getElementById("metasploitContent");
-    if (!Array.isArray(results) || results.length === 0) {
-        el.innerHTML = `<p class="empty-state">No Metasploit results available.</p>`;
-        return;
-    }
-
-    el.innerHTML = results.map((r,i) => `
-        <div class="result-box">
-            <h4>Metasploit Output ${i+1}</h4>
-            <pre>${escapeHtml(typeof r === "string" ? r : JSON.stringify(r,null,2))}</pre>
-        </div>
-    `).join("");
-}
-
-function renderAIReadable(ai) {
-    const el = document.getElementById("rawAiContent");
-    if (!ai) { el.innerHTML = `<p class="empty-state">No AI analysis yet.</p>`; return; }
-
-    if (typeof ai === "string") {
-        try { ai = JSON.parse(ai); } catch(e) {}
-    }
-
-    let html = "";
-    if (ai.attack_chain) {
-        html += "<h4>Attack Chain:</h4><ol>";
-        ai.attack_chain.forEach((s,i) => html += `<li>Step ${i+1}: ${escapeHtml(s.action || s.technique || "")}</li>`);
-        html += "</ol>";
-    }
-    if (ai.risk_level) html += `<p><strong>Risk Level:</strong> ${ai.risk_level}</p>`;
-    if (ai.mitigation) {
-        html += "<h4>Mitigation:</h4><ul>";
-        ai.mitigation.forEach(m => html += `<li>${escapeHtml(m.recommendation || m)}</li>`);
-        html += "</ul>";
-    }
-
-    el.innerHTML = html;
-}
-
-// ---------------- UTILITY ----------------
-function escapeHtml(value) {
-    return String(value)
-        .replace(/&/g,"&amp;")
-        .replace(/</g,"&lt;")
-        .replace(/>/g,"&gt;")
-        .replace(/"/g,"&quot;")
-        .replace(/'/g,"&#039;");
-}
+# ---------------- RUN ----------------
+if __name__ == "__main__":
+    app.run(debug=True)
