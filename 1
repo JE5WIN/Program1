@@ -1,47 +1,116 @@
-{% extends "base.html" %}
 
-{% block title %}New Scan - AI Pentest{% endblock %}
+werkzeug.routing.exceptions.BuildError
 
-{% block content %}
-<div class="topbar">
-    <div>
-        <div class="page-title">Start New Scan</div>
-        <div class="page-sub">Launch scan and redirect to full result page when complete</div>
-    </div>
-    <div class="status-pill" id="topStatus">Ready</div>
-</div>
+werkzeug.routing.exceptions.BuildError: Could not build url for endpoint 'home'. Did you mean 'dashboard' instead?
+Traceback (most recent call last)
 
-<section class="card">
-    <div class="section-title">Target Input</div>
-    <div class="scan-form-grid">
-        <input type="text" id="target" placeholder="Enter target IP or domain">
-        <button class="btn" onclick="startScan()">Start Scan</button>
-        <button class="btn secondary" onclick="resetScanInput()">Clear</button>
-    </div>
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 1536, in __call__
 
-    <div id="scanStatus" style="margin-top: 14px; color:#93c5fd; font-weight:bold;">
-        Waiting to start scan.
-    </div>
+    return self.wsgi_app(environ, start_response)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    <div class="progress-wrap">
-        <div class="progress-track">
-            <div id="progressFill" class="progress-fill"></div>
-        </div>
-        <div class="phase-row">
-            <div class="phase-chip" id="phase-start">Start</div>
-            <div class="phase-chip" id="phase-nmap">Nmap</div>
-            <div class="phase-chip" id="phase-recon">Recon</div>
-            <div class="phase-chip" id="phase-msf">Metasploit</div>
-            <div class="phase-chip" id="phase-ai">AI</div>
-            <div class="phase-chip" id="phase-completed">Completed</div>
-        </div>
-    </div>
-</section>
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 1514, in wsgi_app
 
-<section class="card">
-    <div class="section-title">What Happens Next</div>
-    <p class="muted">
-        After the scan completes, you will be automatically redirected to the full result page for that scan.
-    </p>
-</section>
-{% endblock %}
+    response = self.handle_exception(e)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 1511, in wsgi_app
+
+    response = self.full_dispatch_request()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ [Open an interactive python shell in this frame] 
+
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 919, in full_dispatch_request
+
+                request_started.send(self, _async_wrapper=self.ensure_sync)
+
+                rv = self.preprocess_request()
+
+                if rv is None:
+
+                    rv = self.dispatch_request()
+
+            except Exception as e:
+
+                rv = self.handle_user_exception(e)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+            return self.finalize_request(rv)
+
+     
+
+        def finalize_request(
+
+            self,
+
+            rv: ft.ResponseReturnValue | HTTPException,
+
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 917, in full_dispatch_request
+
+    rv = self.dispatch_request()
+         ^^^^^^^^^^^^^^^^^^^^^^^
+
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 902, in dispatch_request
+
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    File "/home/jeswin/ai-pentest-lab/app.py", line 152, in new_scan_page
+
+    return render_template("new-scan.html")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/templating.py", line 151, in render_template
+
+    return _render(app, template, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/templating.py", line 132, in _render
+
+    rv = template.render(context)
+         ^^^^^^^^^^^^^^^^^^^^^^^^
+
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/jinja2/environment.py", line 1295, in render
+
+    self.environment.handle_exception()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/jinja2/environment.py", line 942, in handle_exception
+
+    raise rewrite_traceback_stack(source=source)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    File "/home/jeswin/ai-pentest-lab/templates/new-scan.html", line 1, in top-level template code
+
+    {% extends "base.html" %}
+
+    File "/home/jeswin/ai-pentest-lab/templates/base.html", line 16, in top-level template code
+
+    <a href="{{ url_for('home') }}" class="side-btn {% if request.endpoint == 'home' %}active{% endif %}">Home</a>
+
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 1121, in url_for
+
+    return self.handle_url_build_error(error, endpoint, values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/flask/app.py", line 1110, in url_for
+
+    rv = url_adapter.build(  # type: ignore[union-attr]
+         
+
+    File "/home/jeswin/ai-pentest-lab/venv/lib/python3.13/site-packages/werkzeug/routing/map.py", line 901, in build
+
+    raise BuildError(endpoint, values, method, self)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    werkzeug.routing.exceptions.BuildError: Could not build url for endpoint 'home'. Did you mean 'dashboard' instead?
+
+The debugger caught an exception in your WSGI application. You can now look at the traceback which led to the error.
+
+To switch between the interactive traceback and the plaintext one, you can click on the "Traceback" headline. From the text traceback you can also create a paste of it. For code execution mouse-over the frame you want to debug and click on the console icon on the right side.
+
+You can execute arbitrary Python code in the stack frames and there are some extra helpers available for introspection:
+
+    dump() shows all variables in the frame
+    dump(obj) dumps all that's known about the object
+
+Brought to you by DON'T PANIC, your friendly Werkzeug powered traceback interpreter.
