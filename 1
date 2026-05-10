@@ -1,74 +1,50 @@
-from flask import send_file
+function renderAIAnalysis(aiData) {
+    const el = document.getElementById("aiAnalysisContent");
 
-@app.route("/api/report/pdf/<scan_id>")
-def generate_pdf(scan_id):
-    # Optional: allow query param for browser
-    key = request.args.get("key")
-    if key != API_KEY:
-        # For AJAX requests, also check header
-        if request.headers.get("X-API-Key") != API_KEY:
-            return {"error": "Unauthorized"}, 401
+    if (!aiData || Object.keys(aiData).length === 0) {
+        el.innerHTML = `
+            <p class="empty-state">
+                No AI analysis available.
+            </p>
+        `;
+        return;
+    }
 
-    file_path = f"storage/findings/{scan_id}.json"
+    // Attack chain steps
+    const attackChain = (aiData.attack_chain || []).map((step, idx) => `
+        <li>
+            <strong>Step ${idx + 1}:</strong>
+            ${step.action || step.technique || "N/A"}
+            ${step.tool ? `(${step.tool})` : ""}
+        </li>
+    `).join("");
 
-    if not os.path.exists(file_path):
-        return {"error": "Scan not found"}, 404
+    // Mitigation list
+    const mitigations = (aiData.mitigation || []).map(m => `
+        <li>
+            ${m.recommendation || m.step || m}
+        </li>
+    `).join("");
 
-    with open(file_path) as f:
-        data = json.load(f)
+    el.innerHTML = `
+        <div class="result-box">
 
-    pdf_path = f"storage/findings/{scan_id}.pdf"
+            <h3>Risk Level</h3>
+            <p>${aiData.risk_level || "Unknown"}</p>
 
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-    from reportlab.lib.styles import getSampleStyleSheet
+            <h3>Explanation</h3>
+            <p>${aiData.explanation || "No explanation available."}</p>
 
-    doc = SimpleDocTemplate(pdf_path)
-    styles = getSampleStyleSheet()
-    content = []
+            <h3>Attack Chain</h3>
+            <ol>
+                ${attackChain || "<li>No attack chain generated.</li>"}
+            </ol>
 
-    # Add basic info
-    content.append(Paragraph(f"Scan ID: {data.get('scan_id','N/A')}", styles["Heading2"]))
-    content.append(Paragraph(f"Target: {data.get('target','N/A')}", styles["Normal"]))
-    content.append(Paragraph(f"Timestamp: {data.get('timestamp','N/A')}", styles["Normal"]))
-    content.append(Spacer(1,12))
+            <h3>Mitigation Advice</h3>
+            <ul>
+                ${mitigations || "<li>No mitigation advice available.</li>"}
+            </ul>
 
-    # Add summary
-    summary = data.get("summary", {})
-    summary_text = f"High: {summary.get('High',0)}, Medium: {summary.get('Medium',0)}, Low: {summary.get('Low',0)}"
-    content.append(Paragraph(f"Summary: {summary_text}", styles["Normal"]))
-    content.append(Spacer(1,12))
-
-    # Add Nmap results
-    nmap_results = data.get("nmap", [])
-    content.append(Paragraph("Open Ports:", styles["Heading3"]))
-    for port in nmap_results:
-        line = f"Port: {port.get('port','N/A')}, Service: {port.get('service','N/A')}, Severity: {port.get('severity','N/A')}"
-        content.append(Paragraph(line, styles["Normal"]))
-    content.append(Spacer(1,12))
-
-    # Add findings
-    findings = data.get("findings", [])
-    content.append(Paragraph("Recon Findings:", styles["Heading3"]))
-    if findings:
-        for idx,f in enumerate(findings,1):
-            title = f.get("title", f"Finding {idx}")
-            severity = f.get("severity","N/A")
-            desc = f.get("description","")
-            content.append(Paragraph(f"{title} (Severity: {severity}) - {desc}", styles["Normal"]))
-            content.append(Spacer(1,6))
-    else:
-        content.append(Paragraph("No findings recorded.", styles["Normal"]))
-    content.append(Spacer(1,12))
-
-    # Add AI analysis
-    ai_analysis = data.get("ai_analysis","")
-    if isinstance(ai_analysis, dict):
-        ai_analysis = json.dumps(ai_analysis, indent=2)  # Convert dict to text
-    content.append(Paragraph("AI Analysis:", styles["Heading3"]))
-    content.append(Paragraph(str(ai_analysis), styles["Normal"]))
-
-    # Build PDF
-    doc.build(content)
-
-    # Serve PDF to browser
-    return send_file(pdf_path, as_attachment=True)
+        </div>
+    `;
+}
