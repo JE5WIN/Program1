@@ -1,23 +1,23 @@
-// script.js
-
+// ---------------- CONFIG ----------------
 const API_KEY = "jeswin2026";
 
-// ---------------- TAB HANDLING ----------------
+// ---------------- TAB NAVIGATION ----------------
 function showMainTab(tabId, el) {
     const tabs = document.querySelectorAll(".tab-panel");
-    tabs.forEach(t => t.classList.remove("active"));
+    tabs.forEach(tab => tab.classList.add("hidden"));
 
     const buttons = document.querySelectorAll(".tab-btn");
-    buttons.forEach(b => b.classList.remove("active"));
+    buttons.forEach(btn => btn.classList.remove("active"));
 
-    document.getElementById(tabId).classList.add("active");
+    document.getElementById(tabId).classList.remove("hidden");
     el.classList.add("active");
 }
 
-// ---------------- START SCAN ----------------
+// ---------------- SCAN ----------------
 async function startScan() {
-    const target = document.getElementById("target").value.trim();
-    const statusEl = document.getElementById("topStatus");
+    const targetInput = document.getElementById("target");
+    const statusEl = document.getElementById("scanStatus");
+    const target = targetInput.value.trim();
 
     if (!target) {
         statusEl.innerText = "Please enter a target IP or domain.";
@@ -25,103 +25,121 @@ async function startScan() {
     }
 
     statusEl.innerText = "Starting scan...";
+
     try {
-        const res = await fetch("/api/scan", {
+        const response = await fetch("/api/scan", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
                 "X-API-Key": API_KEY
             },
-            body: JSON.stringify({ target })
+            body: JSON.stringify({ target: target })
         });
 
-        const data = await res.json();
-        if (!res.ok) {
+        const data = await response.json();
+
+        if (!response.ok) {
             statusEl.innerText = data.error || "Failed to start scan.";
             return;
         }
 
         const scanId = data.scan_id;
-        statusEl.innerText = `Scan started (ID: ${scanId})`;
-        pollScan(scanId);
+        statusEl.innerText = `Scan started. Scan ID: ${scanId}`;
 
-    } catch (err) {
-        console.error(err);
+        // Poll results live
+        pollScanResults(scanId);
+
+    } catch (error) {
+        console.error("Start scan error:", error);
         statusEl.innerText = "Error starting scan.";
     }
 }
 
-// ---------------- POLL SCAN STATUS ----------------
-function pollScan(scanId) {
-    const statusEl = document.getElementById("topStatus");
+// ---------------- POLLING / LIVE UPDATE ----------------
+async function pollScanResults(scanId) {
+    const statusEl = document.getElementById("scanStatus");
 
     const interval = setInterval(async () => {
         try {
-            const res = await fetch(`/api/status/${scanId}`, {
+            const response = await fetch(`/api/result/${scanId}`, {
                 headers: { "X-API-Key": API_KEY }
             });
-            const statusData = await res.json();
-            statusEl.innerText = `Status: ${statusData.status}`;
+            const data = await response.json();
 
-            await loadScanResult(scanId);
+            // Update status based on backend stage
+            statusEl.innerText = `Status: ${scan_status_map(data.status)}`;
 
-            if (statusData.status === "Completed" || statusData.status === "Failed") {
+            // Incrementally update UI
+            if (data.nmap) renderPorts(data.nmap);
+            if (data.findings) renderFindings(data.findings);
+            if (data.vulnerabilities) renderVulnerabilities(data.vulnerabilities);
+            if (data.attack_chain) renderAttackChain(data.attack_chain);
+            if (data.metasploit) renderMetasploit(data.metasploit);
+            if (data.ai_analysis) renderAIReadable(data.ai_analysis);
+            if (data.summary) renderOverviewSummary(data.summary, data);
+
+            // Stop polling when completed
+            if (data.status === "Completed") {
                 clearInterval(interval);
-                statusEl.innerText = `Status: ${statusData.status}`;
+                showMainTab('overviewTab', document.querySelector(".tab-btn.active"));
+                statusEl.innerText = "Scan Completed";
             }
-        } catch (err) {
+        } catch (error) {
+            console.error("Polling error:", error);
             clearInterval(interval);
             statusEl.innerText = "Error checking scan status.";
-            console.error(err);
         }
-    }, 3000);
+    }, 2000); // every 2 sec
 }
 
-// ---------------- LOAD SCAN RESULT ----------------
-async function loadScanResult(scanId) {
-    try {
-        const res = await fetch(`/api/result/${scanId}`, {
-            headers: { "X-API-Key": API_KEY }
-        });
-        if (!res.ok) return;
-
-        const data = await res.json();
-
-        renderSummary(data.summary, data.nmap, data.vulnerabilities);
-        renderPorts(data.nmap || []);
-        renderFindings(data.findings || []);
-        renderVulnerabilities(data.vulnerabilities || []);
-        renderAttackChain(data.attack_chain || []);
-        renderMetasploit(data.metasploit || []);
-        renderAI(data.ai_analysis || "");
-    } catch (err) {
-        console.error("Load scan result error:", err);
+// Map backend statuses to readable text
+function scan_status_map(status) {
+    switch(status) {
+        case "Nmap": return "Running Nmap Scan";
+        case "Recon": return "Running Recon Engine";
+        case "Metasploit": return "Running Metasploit Modules";
+        case "AI": return "Generating AI Attack Chain";
+        case "Completed": return "Scan Completed";
+        case "Failed": return "Scan Failed";
+        default: return status;
     }
 }
 
-// ---------------- RENDERING FUNCTIONS ----------------
-function renderSummary(summary = {}, ports = [], vulns = []) {
-    document.getElementById("summaryPorts").innerText = ports.length || 0;
-    document.getElementById("summaryHigh").innerText = summary.High || 0;
-    document.getElementById("summaryMedium").innerText = summary.Medium || 0;
-    document.getElementById("summaryLow").innerText = summary.Low || 0;
-    document.getElementById("summaryVulns").innerText = vulns.length || 0;
+// ---------------- RENDER FUNCTIONS ----------------
+function renderOverviewSummary(summary, data) {
+    document.getElementById("summaryPorts").innerText = data.nmap?.length || 0;
+    document.getElementById("summaryHigh").innerText = summary.High ?? 0;
+    document.getElementById("summaryMedium").innerText = summary.Medium ?? 0;
+    document.getElementById("summaryLow").innerText = summary.Low ?? 0;
+    document.getElementById("summaryVulns").innerText = data.vulnerabilities?.length || 0;
+
+    // Overview content
+    const overviewEl = document.getElementById("overviewContent");
+    overviewEl.innerHTML = `
+        <div class="result-box">
+            <p><strong>Scan ID:</strong> ${escapeHtml(data.scan_id || "N/A")}</p>
+            <p><strong>Target:</strong> ${escapeHtml(data.target || "N/A")}</p>
+            <p><strong>Timestamp:</strong> ${escapeHtml(data.timestamp || "N/A")}</p>
+        </div>
+    `;
 }
 
 function renderPorts(ports) {
     const el = document.getElementById("portsContent");
-    if (!ports.length) {
-        el.innerHTML = `<p class="empty-state">No open ports.</p>`;
+    if (!Array.isArray(ports) || ports.length === 0) {
+        el.innerHTML = `<p class="empty-state">No open ports found.</p>`;
         return;
     }
-    const rows = ports.map(p => `
+
+    const rows = ports.map(port => `
         <tr>
-            <td>${p.port || "N/A"}</td>
-            <td>${p.protocol || "tcp"}</td>
-            <td>${p.service || "unknown"}</td>
-            <td>${p.severity || "-"}</td>
+            <td>${escapeHtml(port.port || "N/A")}</td>
+            <td>${escapeHtml(port.protocol || "N/A")}</td>
+            <td>${escapeHtml(port.service || "N/A")}</td>
+            <td>${escapeHtml(port.state || "N/A")}</td>
         </tr>
     `).join("");
+
     el.innerHTML = `
         <table>
             <thead>
@@ -129,7 +147,7 @@ function renderPorts(ports) {
                     <th>Port</th>
                     <th>Protocol</th>
                     <th>Service</th>
-                    <th>Severity</th>
+                    <th>State</th>
                 </tr>
             </thead>
             <tbody>${rows}</tbody>
@@ -139,104 +157,94 @@ function renderPorts(ports) {
 
 function renderFindings(findings) {
     const el = document.getElementById("findingsContent");
-    if (!findings.length) {
-        el.innerHTML = `<p class="empty-state">No findings.</p>`;
+    if (!Array.isArray(findings) || findings.length === 0) {
+        el.innerHTML = `<p class="empty-state">No findings available.</p>`;
         return;
     }
-    el.innerHTML = findings.map((f, i) => `
-        <div class="result-box" onclick="showDetail(${i}, 'finding')">
+
+    el.innerHTML = findings.map((f,i) => `
+        <div class="result-box">
             <h4>Finding ${i+1}</h4>
-            <p><strong>Title:</strong> ${f.title || "N/A"}</p>
-            <p><strong>Severity:</strong> ${f.severity || "N/A"}</p>
-            <p><strong>Description:</strong> ${f.description || "-"}</p>
+            <p><strong>Title:</strong> ${escapeHtml(f.title || "N/A")}</p>
+            <p><strong>Severity:</strong> ${escapeHtml(f.severity || "N/A")}</p>
+            <p><strong>Description:</strong> ${escapeHtml(f.description || JSON.stringify(f))}</p>
         </div>
     `).join("");
 }
 
 function renderVulnerabilities(vulns) {
     const el = document.getElementById("vulnerabilitiesContent");
-    if (!vulns.length) {
-        el.innerHTML = `<p class="empty-state">No vulnerabilities.</p>`;
+    if (!Array.isArray(vulns) || vulns.length === 0) {
+        el.innerHTML = `<p class="empty-state">No vulnerabilities mapped.</p>`;
         return;
     }
-    el.innerHTML = vulns.map((v, i) => `
-        <div class="result-box" onclick="showDetail(${i}, 'vuln')">
+
+    el.innerHTML = vulns.map((v,i) => `
+        <div class="result-box">
             <h4>Vulnerability ${i+1}</h4>
-            <p><strong>Name:</strong> ${v.name || v.title || "N/A"}</p>
-            <p><strong>Severity:</strong> ${v.severity || "N/A"}</p>
-            <p><strong>Description:</strong> ${v.description || "-"}</p>
+            <p><strong>Name:</strong> ${escapeHtml(v.name || v.title || "N/A")}</p>
+            <p><strong>Severity:</strong> ${escapeHtml(v.severity || "N/A")}</p>
+            <p><strong>Description:</strong> ${escapeHtml(v.description || JSON.stringify(v))}</p>
         </div>
     `).join("");
 }
 
 function renderAttackChain(chain) {
     const el = document.getElementById("attackChainContent");
-    if (!chain.length) {
-        el.innerHTML = `<p class="empty-state">No attack chain.</p>`;
+    if (!Array.isArray(chain) || chain.length === 0) {
+        el.innerHTML = `<p class="empty-state">No attack chain generated.</p>`;
         return;
     }
-    const items = chain.map((s, i) => `
-        <li><strong>Step ${i+1}:</strong> ${s.action || s.technique || "N/A"} (${s.tool || "-"})</li>
-    `).join("");
+
+    const items = chain.map((step, idx) => `<li>Step ${idx+1}: ${escapeHtml(step.action || step.technique || "")}</li>`).join("");
     el.innerHTML = `<ol>${items}</ol>`;
 }
 
 function renderMetasploit(results) {
     const el = document.getElementById("metasploitContent");
-    if (!results || !results.length) {
-        el.innerHTML = `<p class="empty-state">No Metasploit results yet.</p>`;
+    if (!Array.isArray(results) || results.length === 0) {
+        el.innerHTML = `<p class="empty-state">No Metasploit results available.</p>`;
         return;
     }
-    el.innerHTML = results.map((r, i) => `
+
+    el.innerHTML = results.map((r,i) => `
         <div class="result-box">
-            <pre>${typeof r === "string" ? r : JSON.stringify(r, null, 2)}</pre>
+            <h4>Metasploit Output ${i+1}</h4>
+            <pre>${escapeHtml(typeof r === "string" ? r : JSON.stringify(r,null,2))}</pre>
         </div>
     `).join("");
 }
 
-function renderAI(ai) {
+function renderAIReadable(ai) {
     const el = document.getElementById("rawAiContent");
-    if (!ai || !ai.trim()) {
-        el.innerHTML = `<p class="empty-state">AI output pending.</p>`;
-        return;
+    if (!ai) { el.innerHTML = `<p class="empty-state">No AI analysis yet.</p>`; return; }
+
+    if (typeof ai === "string") {
+        try { ai = JSON.parse(ai); } catch(e) {}
     }
 
-    // Convert JSON to readable format
-    let readable = ai;
-    try {
-        const obj = typeof ai === "string" ? JSON.parse(ai) : ai;
-        readable = `
-            <p><strong>Risk Level:</strong> ${obj.risk_level || "N/A"}</p>
-            <p><strong>Explanation:</strong> ${obj.explanation || "N/A"}</p>
-            <p><strong>Mitigation:</strong></p>
-            <ul>
-                ${(obj.mitigation || []).map(m => `<li>${m.step || ""} - ${m.recommendation || m}</li>`).join("")}
-            </ul>
-        `;
-    } catch(e){ console.log("AI parsing error", e); }
-
-    el.innerHTML = readable;
-}
-
-// ---------------- DETAIL DRAWER ----------------
-function showDetail(idx, type) {
-    const drawer = document.getElementById("detailDrawer");
-    const contentEl = document.getElementById("drawerContent");
-    drawer.style.display = "block";
-
-    let data = [];
-    if(type === 'finding') data = window.currentFindings || [];
-    if(type === 'vuln') data = window.currentVulns || [];
-
-    if(data[idx]){
-        contentEl.innerHTML = `
-            <p><strong>Name/Title:</strong> ${data[idx].title || data[idx].name}</p>
-            <p><strong>Severity:</strong> ${data[idx].severity}</p>
-            <p><strong>Description:</strong> ${data[idx].description}</p>
-        `;
+    let html = "";
+    if (ai.attack_chain) {
+        html += "<h4>Attack Chain:</h4><ol>";
+        ai.attack_chain.forEach((s,i) => html += `<li>Step ${i+1}: ${escapeHtml(s.action || s.technique || "")}</li>`);
+        html += "</ol>";
     }
+    if (ai.risk_level) html += `<p><strong>Risk Level:</strong> ${ai.risk_level}</p>`;
+    if (ai.mitigation) {
+        html += "<h4>Mitigation:</h4><ul>";
+        ai.mitigation.forEach(m => html += `<li>${escapeHtml(m.recommendation || m)}</li>`);
+        html += "</ul>";
+    }
+
+    el.innerHTML = html;
 }
 
-function closeDrawer() {
-    document.getElementById("detailDrawer").style.display = "none";
+// ---------------- UTILITY ----------------
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;")
+        .replace(/'/g,"&#039;");
 }
