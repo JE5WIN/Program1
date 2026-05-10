@@ -1,14 +1,16 @@
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.pagesizes import A4
+from flask import send_file
 
 @app.route("/api/report/pdf/<scan_id>")
 def generate_pdf(scan_id):
-    # Ensure API key is provided
-    if request.headers.get("X-API-Key") != API_KEY:
-        return {"error": "Unauthorized"}, 401
+    # Optional: allow query param for browser
+    key = request.args.get("key")
+    if key != API_KEY:
+        # For AJAX requests, also check header
+        if request.headers.get("X-API-Key") != API_KEY:
+            return {"error": "Unauthorized"}, 401
 
     file_path = f"storage/findings/{scan_id}.json"
+
     if not os.path.exists(file_path):
         return {"error": "Scan not found"}, 404
 
@@ -16,72 +18,57 @@ def generate_pdf(scan_id):
         data = json.load(f)
 
     pdf_path = f"storage/findings/{scan_id}.pdf"
-    doc = SimpleDocTemplate(pdf_path, pagesize=A4)
+
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    doc = SimpleDocTemplate(pdf_path)
     styles = getSampleStyleSheet()
     content = []
 
-    # Title
-    content.append(Paragraph(f"Scan Report - {data.get('target','N/A')}", styles["Title"]))
-    content.append(Spacer(1, 12))
+    # Add basic info
+    content.append(Paragraph(f"Scan ID: {data.get('scan_id','N/A')}", styles["Heading2"]))
+    content.append(Paragraph(f"Target: {data.get('target','N/A')}", styles["Normal"]))
+    content.append(Paragraph(f"Timestamp: {data.get('timestamp','N/A')}", styles["Normal"]))
+    content.append(Spacer(1,12))
 
-    # Summary
-    content.append(Paragraph("Summary:", styles["Heading2"]))
-    summary_text = f"High: {data.get('summary', {}).get('High',0)}, " \
-                   f"Medium: {data.get('summary', {}).get('Medium',0)}, " \
-                   f"Low: {data.get('summary', {}).get('Low',0)}"
-    content.append(Paragraph(summary_text, styles["Normal"]))
-    content.append(Spacer(1, 12))
+    # Add summary
+    summary = data.get("summary", {})
+    summary_text = f"High: {summary.get('High',0)}, Medium: {summary.get('Medium',0)}, Low: {summary.get('Low',0)}"
+    content.append(Paragraph(f"Summary: {summary_text}", styles["Normal"]))
+    content.append(Spacer(1,12))
 
-    # Nmap results
-    content.append(Paragraph("Open Ports:", styles["Heading2"]))
-    nmap_text = ""
-    for port in data.get("nmap", []):
-        nmap_text += f"Port {port.get('port','N/A')}: {port.get('service','N/A')} ({port.get('severity','N/A')})\n"
-    content.append(Paragraph(nmap_text.replace("\n","<br/>"), styles["Normal"]))
-    content.append(Spacer(1, 12))
+    # Add Nmap results
+    nmap_results = data.get("nmap", [])
+    content.append(Paragraph("Open Ports:", styles["Heading3"]))
+    for port in nmap_results:
+        line = f"Port: {port.get('port','N/A')}, Service: {port.get('service','N/A')}, Severity: {port.get('severity','N/A')}"
+        content.append(Paragraph(line, styles["Normal"]))
+    content.append(Spacer(1,12))
 
-    # Findings
-    content.append(Paragraph("Recon Findings:", styles["Heading2"]))
+    # Add findings
     findings = data.get("findings", [])
+    content.append(Paragraph("Recon Findings:", styles["Heading3"]))
     if findings:
-        for f in findings:
-            f_text = f"Title: {f.get('title','N/A')}, Severity: {f.get('severity','N/A')}, Description: {f.get('description','N/A')}"
-            content.append(Paragraph(f_text, styles["Normal"]))
+        for idx,f in enumerate(findings,1):
+            title = f.get("title", f"Finding {idx}")
+            severity = f.get("severity","N/A")
+            desc = f.get("description","")
+            content.append(Paragraph(f"{title} (Severity: {severity}) - {desc}", styles["Normal"]))
+            content.append(Spacer(1,6))
     else:
-        content.append(Paragraph("No findings available.", styles["Normal"]))
-    content.append(Spacer(1, 12))
+        content.append(Paragraph("No findings recorded.", styles["Normal"]))
+    content.append(Spacer(1,12))
 
-    # Vulnerabilities
-    content.append(Paragraph("Vulnerabilities:", styles["Heading2"]))
-    vulns = data.get("vulnerabilities", [])
-    if vulns:
-        for v in vulns:
-            v_text = f"Name: {v.get('name','N/A')}, Severity: {v.get('severity','N/A')}, Description: {v.get('description','N/A')}"
-            content.append(Paragraph(v_text, styles["Normal"]))
-    else:
-        content.append(Paragraph("No vulnerabilities mapped.", styles["Normal"]))
-    content.append(Spacer(1, 12))
-
-    # Attack Chain
-    content.append(Paragraph("Attack Chain:", styles["Heading2"]))
-    attack_chain = data.get("attack_chain", [])
-    if attack_chain:
-        for step in attack_chain:
-            step_text = f"Step {step.get('step','N/A')}: {step.get('action','N/A')}"
-            content.append(Paragraph(step_text, styles["Normal"]))
-    else:
-        content.append(Paragraph("No attack chain generated.", styles["Normal"]))
-    content.append(Spacer(1, 12))
-
-    # AI Analysis
-    content.append(Paragraph("AI Analysis:", styles["Heading2"]))
-    ai_text = data.get("ai_analysis","")
-    if isinstance(ai_text, dict):
-        # convert dict to pretty JSON string
-        ai_text = json.dumps(ai_text, indent=4)
-    content.append(Paragraph(ai_text.replace("\n","<br/>"), styles["Normal"]))
+    # Add AI analysis
+    ai_analysis = data.get("ai_analysis","")
+    if isinstance(ai_analysis, dict):
+        ai_analysis = json.dumps(ai_analysis, indent=2)  # Convert dict to text
+    content.append(Paragraph("AI Analysis:", styles["Heading3"]))
+    content.append(Paragraph(str(ai_analysis), styles["Normal"]))
 
     # Build PDF
     doc.build(content)
 
-    return {"message": "PDF generated", "file": pdf_path}
+    # Serve PDF to browser
+    return send_file(pdf_path, as_attachment=True)
