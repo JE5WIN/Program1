@@ -1,32 +1,87 @@
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.pagesizes import A4
+
 @app.route("/api/report/pdf/<scan_id>")
 def generate_pdf(scan_id):
-    file_path = f"storage/findings/{scan_id}.json"
+    # Ensure API key is provided
+    if request.headers.get("X-API-Key") != API_KEY:
+        return {"error": "Unauthorized"}, 401
 
+    file_path = f"storage/findings/{scan_id}.json"
     if not os.path.exists(file_path):
-        return {"error": "Not found"}, 404
+        return {"error": "Scan not found"}, 404
 
     with open(file_path) as f:
         data = json.load(f)
 
     pdf_path = f"storage/findings/{scan_id}.pdf"
-
-    doc = SimpleDocTemplate(pdf_path)
+    doc = SimpleDocTemplate(pdf_path, pagesize=A4)
     styles = getSampleStyleSheet()
-
     content = []
 
-    content.append(Paragraph(f"Target: {data['target']}", styles["Normal"]))
-    content.append(Paragraph(f"Summary: {data['summary']}", styles["Normal"]))
+    # Title
+    content.append(Paragraph(f"Scan Report - {data.get('target','N/A')}", styles["Title"]))
+    content.append(Spacer(1, 12))
 
-    # Convert AI analysis to string if needed
-    ai_text = data.get("ai_analysis", {})
+    # Summary
+    content.append(Paragraph("Summary:", styles["Heading2"]))
+    summary_text = f"High: {data.get('summary', {}).get('High',0)}, " \
+                   f"Medium: {data.get('summary', {}).get('Medium',0)}, " \
+                   f"Low: {data.get('summary', {}).get('Low',0)}"
+    content.append(Paragraph(summary_text, styles["Normal"]))
+    content.append(Spacer(1, 12))
+
+    # Nmap results
+    content.append(Paragraph("Open Ports:", styles["Heading2"]))
+    nmap_text = ""
+    for port in data.get("nmap", []):
+        nmap_text += f"Port {port.get('port','N/A')}: {port.get('service','N/A')} ({port.get('severity','N/A')})\n"
+    content.append(Paragraph(nmap_text.replace("\n","<br/>"), styles["Normal"]))
+    content.append(Spacer(1, 12))
+
+    # Findings
+    content.append(Paragraph("Recon Findings:", styles["Heading2"]))
+    findings = data.get("findings", [])
+    if findings:
+        for f in findings:
+            f_text = f"Title: {f.get('title','N/A')}, Severity: {f.get('severity','N/A')}, Description: {f.get('description','N/A')}"
+            content.append(Paragraph(f_text, styles["Normal"]))
+    else:
+        content.append(Paragraph("No findings available.", styles["Normal"]))
+    content.append(Spacer(1, 12))
+
+    # Vulnerabilities
+    content.append(Paragraph("Vulnerabilities:", styles["Heading2"]))
+    vulns = data.get("vulnerabilities", [])
+    if vulns:
+        for v in vulns:
+            v_text = f"Name: {v.get('name','N/A')}, Severity: {v.get('severity','N/A')}, Description: {v.get('description','N/A')}"
+            content.append(Paragraph(v_text, styles["Normal"]))
+    else:
+        content.append(Paragraph("No vulnerabilities mapped.", styles["Normal"]))
+    content.append(Spacer(1, 12))
+
+    # Attack Chain
+    content.append(Paragraph("Attack Chain:", styles["Heading2"]))
+    attack_chain = data.get("attack_chain", [])
+    if attack_chain:
+        for step in attack_chain:
+            step_text = f"Step {step.get('step','N/A')}: {step.get('action','N/A')}"
+            content.append(Paragraph(step_text, styles["Normal"]))
+    else:
+        content.append(Paragraph("No attack chain generated.", styles["Normal"]))
+    content.append(Spacer(1, 12))
+
+    # AI Analysis
+    content.append(Paragraph("AI Analysis:", styles["Heading2"]))
+    ai_text = data.get("ai_analysis","")
     if isinstance(ai_text, dict):
+        # convert dict to pretty JSON string
         ai_text = json.dumps(ai_text, indent=4)
-    content.append(Paragraph("<b>AI Analysis:</b>", styles["Heading3"]))
-    content.append(Paragraph(ai_text, styles["Normal"]))
+    content.append(Paragraph(ai_text.replace("\n","<br/>"), styles["Normal"]))
 
     # Build PDF
     doc.build(content)
 
-    # ✅ Return must be inside the function
     return {"message": "PDF generated", "file": pdf_path}
