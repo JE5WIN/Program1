@@ -1,50 +1,251 @@
-function renderAIAnalysis(aiData) {
-    const el = document.getElementById("aiAnalysisContent");
+// =========================================
+// AI-PENTEST DASHBOARD SCRIPT.JS
+// Handles scanning, polling, and rendering
+// =========================================
 
-    if (!aiData || Object.keys(aiData).length === 0) {
-        el.innerHTML = `
-            <p class="empty-state">
-                No AI analysis available.
-            </p>
-        `;
+const API_KEY = "jeswin2026";
+
+// =====================
+// TAB NAVIGATION
+// =====================
+function showMainTab(tabId, el) {
+    const panels = document.querySelectorAll(".tab-panel");
+    panels.forEach(p => p.classList.add("hidden"));
+    document.getElementById(tabId).classList.remove("hidden");
+
+    const tabs = document.querySelectorAll(".tab-btn");
+    tabs.forEach(t => t.classList.remove("active"));
+    el.classList.add("active");
+}
+
+function toggleAttackView(view) {
+    const listView = document.getElementById("attackListView");
+    const graphView = document.getElementById("attackGraphView");
+
+    if (view === "list") {
+        listView.classList.remove("hidden");
+        graphView.classList.add("hidden");
+    } else {
+        listView.classList.add("hidden");
+        graphView.classList.remove("hidden");
+        renderAttackGraph(); // call graph rendering
+    }
+
+    document.getElementById("attackListToggle").classList.toggle("active", view === "list");
+    document.getElementById("attackGraphToggle").classList.toggle("active", view === "graph");
+}
+
+// =====================
+// SCAN INITIATION
+// =====================
+async function startScan() {
+    const targetInput = document.getElementById("target");
+    const target = targetInput.value.trim();
+    const statusEl = document.getElementById("topStatus");
+
+    if (!target) {
+        statusEl.innerText = "Please enter a target IP or domain.";
         return;
     }
 
-    // Attack chain steps
-    const attackChain = (aiData.attack_chain || []).map((step, idx) => `
-        <li>
-            <strong>Step ${idx + 1}:</strong>
-            ${step.action || step.technique || "N/A"}
-            ${step.tool ? `(${step.tool})` : ""}
-        </li>
-    `).join("");
+    statusEl.innerText = "Starting scan...";
 
-    // Mitigation list
-    const mitigations = (aiData.mitigation || []).map(m => `
-        <li>
-            ${m.recommendation || m.step || m}
-        </li>
+    try {
+        const response = await fetch("/api/scan", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-API-Key": API_KEY
+            },
+            body: JSON.stringify({ target: target })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            statusEl.innerText = data.error || "Failed to start scan.";
+            return;
+        }
+
+        const scanId = data.scan_id;
+        statusEl.innerText = `Scan started (ID: ${scanId})`;
+
+        // Poll scan status every 3 seconds
+        pollScanStatus(scanId);
+
+    } catch (err) {
+        console.error("Error starting scan:", err);
+        statusEl.innerText = "Error starting scan.";
+    }
+}
+
+// =====================
+// POLLING SCAN STATUS
+// =====================
+function pollScanStatus(scanId) {
+    const statusEl = document.getElementById("topStatus");
+
+    const interval = setInterval(async () => {
+        try {
+            const res = await fetch(`/api/status/${scanId}`, {
+                headers: { "X-API-Key": API_KEY }
+            });
+            const data = await res.json();
+
+            statusEl.innerText = `Scan Status: ${data.status}`;
+
+            // Load partial results every time
+            await loadPartialResult(scanId);
+
+            if (data.status === "Completed" || data.status === "Failed") {
+                clearInterval(interval);
+                statusEl.innerText = `Scan ${data.status}`;
+                if (data.status === "Completed") {
+                    await loadPartialResult(scanId, true); // load final
+                }
+            }
+        } catch (err) {
+            clearInterval(interval);
+            console.error("Polling error:", err);
+            statusEl.innerText = "Error checking scan status.";
+        }
+    }, 3000);
+}
+
+// =====================
+// LOAD PARTIAL RESULTS
+// =====================
+async function loadPartialResult(scanId, finalLoad = false) {
+    try {
+        const res = await fetch(`/api/result/${scanId}`, {
+            headers: { "X-API-Key": API_KEY }
+        });
+        const data = await res.json();
+
+        renderOverview(data);
+        renderPorts(data.nmap || []);
+        renderFindings(data.findings || []);
+        renderVulnerabilities(data.vulnerabilities || []);
+
+        if (data.ai_analysis && Object.keys(data.ai_analysis).length > 0) {
+            renderAIAnalysis(data.ai_analysis);
+            renderAttackChain(data.ai_analysis.attack_chain || []);
+        } else if (!finalLoad) {
+            document.getElementById("rawAiContent").innerHTML = `<p class="empty-state">AI analysis pending...</p>`;
+            document.getElementById("attackChainContent").innerHTML = `<p class="empty-state">AI attack chain pending...</p>`;
+        }
+
+        renderMetasploit(data.metasploit || []);
+
+    } catch (err) {
+        console.error("Load scan error:", err);
+    }
+}
+
+// =====================
+// RENDER FUNCTIONS
+// =====================
+function renderOverview(data) {
+    const portsCount = Array.isArray(data.nmap)
+        ? data.nmap.filter(p => p.port).length
+        : 0;
+
+    const summary = data.summary || { High: 0, Medium: 0, Low: 0 };
+
+    document.getElementById("overviewContent").innerHTML = `
+        <div class="result-box">
+            <p><strong>Scan ID:</strong> ${data.scan_id || "N/A"}</p>
+            <p><strong>Target:</strong> ${data.target || "N/A"}</p>
+            <p><strong>Timestamp:</strong> ${data.timestamp || "N/A"}</p>
+        </div>
+        <div class="summary-grid">
+            <div class="summary-card total"><h4>Total Open Ports</h4><p>${portsCount}</p></div>
+            <div class="summary-card high"><h4>High</h4><p>${summary.High ?? 0}</p></div>
+            <div class="summary-card medium"><h4>Medium</h4><p>${summary.Medium ?? 0}</p></div>
+            <div class="summary-card low"><h4>Low</h4><p>${summary.Low ?? 0}</p></div>
+            <div class="summary-card info"><h4>Mapped Vulnerabilities</h4><p>${(data.vulnerabilities || []).length}</p></div>
+        </div>
+    `;
+}
+
+function renderPorts(ports) {
+    const el = document.getElementById("portsContent");
+    if (!ports.length) return el.innerHTML = `<p class="empty-state">No open ports found yet.</p>`;
+
+    const rows = ports.map(p => `
+        <tr>
+            <td>${p.port || "N/A"}</td>
+            <td>${p.protocol || "N/A"}</td>
+            <td>${p.service || "N/A"}</td>
+            <td>${p.state || "N/A"}</td>
+        </tr>
     `).join("");
 
     el.innerHTML = `
-        <div class="result-box">
-
-            <h3>Risk Level</h3>
-            <p>${aiData.risk_level || "Unknown"}</p>
-
-            <h3>Explanation</h3>
-            <p>${aiData.explanation || "No explanation available."}</p>
-
-            <h3>Attack Chain</h3>
-            <ol>
-                ${attackChain || "<li>No attack chain generated.</li>"}
-            </ol>
-
-            <h3>Mitigation Advice</h3>
-            <ul>
-                ${mitigations || "<li>No mitigation advice available.</li>"}
-            </ul>
-
-        </div>
+        <table>
+            <thead><tr><th>Port</th><th>Protocol</th><th>Service</th><th>State</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
     `;
+}
+
+function renderFindings(findings) {
+    const el = document.getElementById("findingsContent");
+    if (!findings.length) return el.innerHTML = `<p class="empty-state">No findings yet.</p>`;
+
+    el.innerHTML = findings.map((f, i) => `
+        <div class="result-box">
+            <h4>Finding ${i+1}</h4>
+            <p><strong>Title:</strong> ${f.title || "N/A"}</p>
+            <p><strong>Severity:</strong> ${f.severity || "N/A"}</p>
+            <p><strong>Description:</strong> ${f.description || "N/A"}</p>
+        </div>
+    `).join("");
+}
+
+function renderVulnerabilities(vulns) {
+    const el = document.getElementById("vulnerabilitiesContent");
+    if (!vulns.length) return el.innerHTML = `<p class="empty-state">No vulnerabilities mapped yet.</p>`;
+
+    el.innerHTML = vulns.map((v, i) => `
+        <div class="result-box">
+            <h4>Vulnerability ${i+1}</h4>
+            <p><strong>Name:</strong> ${v.name || v.title || "N/A"}</p>
+            <p><strong>Severity:</strong> ${v.severity || "N/A"}</p>
+            <p><strong>Description:</strong> ${v.description || "N/A"}</p>
+        </div>
+    `).join("");
+}
+
+function renderAIAnalysis(ai) {
+    const el = document.getElementById("rawAiContent");
+    // Format AI JSON in readable way
+    const humanReadable = `
+        <p><strong>Risk Level:</strong> ${ai.risk_level || "N/A"}</p>
+        <p><strong>Explanation:</strong> ${ai.explanation || "N/A"}</p>
+        <p><strong>Mitigation:</strong></p>
+        <ol>
+            ${(ai.mitigation || []).map(m => `<li>${m.step || ""}: ${m.recommendation || m}</li>`).join("")}
+        </ol>
+    `;
+    el.innerHTML = humanReadable;
+}
+
+function renderAttackChain(chain) {
+    const el = document.getElementById("attackChainContent");
+    if (!chain.length) return el.innerHTML = `<p class="empty-state">AI attack chain pending...</p>`;
+
+    el.innerHTML = `<ol>` + chain.map(s => `<li><strong>Step:</strong> ${s.step || ""}, <strong>Action:</strong> ${s.action || ""}</li>`).join("") + `</ol>`;
+}
+
+function renderMetasploit(msf) {
+    const el = document.getElementById("metasploitContent");
+    if (!msf.length) return el.innerHTML = `<p class="empty-state">No Metasploit results yet.</p>`;
+
+    el.innerHTML = msf.map((m, i) => `
+        <div class="result-box">
+            <h4>Module ${i+1}</h4>
+            <pre>${typeof m === "string" ? m : JSON.stringify(m, null, 2)}</pre>
+        </div>
+    `).join("");
 }
